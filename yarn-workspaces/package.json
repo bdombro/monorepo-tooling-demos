@@ -1,0 +1,17 @@
+{
+  "name": "yarn",
+  "version": "1.0.0",
+  "license": "ISC",
+  "packageManager": "yarn@4.0.2",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "yarn workspaces foreach -Avp run build",
+    "build:changed": "yarn workspaces foreach -Avp --since run build",
+    "clean": "yarn workspaces foreach -Avp run clean",
+    "lint": "yarn workspaces foreach -Avp run lint",
+    "test": "yarn workspaces foreach -Avp run test",
+    "watch": "yarn workspaces foreach -Avp run watch"
+  }
+}
