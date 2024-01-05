@@ -1,12 +1,12 @@
 import React from "react";
-import { libVar } from "@mydomain/lib";
+import { lib2Var } from "@mydomain/lib2";
 import "./App.css";
 
 function App() {
   return (
     <div className="App">
       <header className="App-header">
-        <p>libVar = {libVar}</p>
+        <p>libVar = {lib2Var}</p>
         <p>
           Edit <code>src/App.tsx</code> and save to reload.
         </p>

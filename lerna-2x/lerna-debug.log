@@ -1,0 +1,285 @@
+0 silly input []
+1 silly flags {
+1 silly flags   _: [ 'bootstrap' ],
+1 silly flags   'reject-cycles': false,
+1 silly flags   rejectCycles: false,
+1 silly flags   args: []
+1 silly flags }
+2 verbose rootPath /Users/brian.dombrowski/Dev/Javascript/monorepo-tooling/monorepo-tooling-demos/lerna-2x
+3 info version 2.11.0
+4 silly existsSync /Users/brian.dombrowski/Dev/Javascript/monorepo-tooling/monorepo-tooling-demos/lerna-2x/VERSION
+5 silly initialize attempt
+6 silly npmConfig {
+6 silly npmConfig   registry: undefined,
+6 silly npmConfig   npmClient: 'yarn',
+6 silly npmConfig   npmClientArgs: undefined,
+6 silly npmConfig   mutex: 'network:42424'
+6 silly npmConfig }
+7 silly initialize success
+8 silly execute attempt
+9 info Bootstrapping 3 packages
+10 info lifecycle preinstall
+11 silly runScript preinstall @mydomain/lib
+12 silly @mydomain/lib
+13 silly runScript preinstall @mydomain/lib2
+14 silly @mydomain/lib2
+15 silly runScript preinstall app
+16 silly app
+17 silly hasMatchingDependency app @mydomain/lib2
+18 silly hasMatchingDependency @mydomain/lib2 @mydomain/lib
+19 silly hasDependencyInstalled app @testing-library/jest-dom
+20 silly dependencyIsSatisfied [
+20 silly dependencyIsSatisfied   '@testing-library/jest-dom',
+20 silly dependencyIsSatisfied   '^5.17.0',
+20 silly dependencyIsSatisfied   '/Users/brian.dombrowski/Dev/Javascript/monorepo-tooling/monorepo-tooling-demos/lerna-2x/packages/app/node_modules'
+20 silly dependencyIsSatisfied ]
+21 verbose dependencyIsSatisfied @testing-library/jest-dom false
+22 silly hasDependencyInstalled app @testing-library/react
+23 silly dependencyIsSatisfied [
+23 silly dependencyIsSatisfied   '@testing-library/react',
+23 silly dependencyIsSatisfied   '^13.4.0',
+23 silly dependencyIsSatisfied   '/Users/brian.dombrowski/Dev/Javascript/monorepo-tooling/monorepo-tooling-demos/lerna-2x/packages/app/node_modules'
+23 silly dependencyIsSatisfied ]
+24 verbose dependencyIsSatisfied @testing-library/react false
+25 silly hasDependencyInstalled app @testing-library/user-event
+26 silly dependencyIsSatisfied [
+26 silly dependencyIsSatisfied   '@testing-library/user-event',
+26 silly dependencyIsSatisfied   '^13.5.0',
+26 silly dependencyIsSatisfied   '/Users/brian.dombrowski/Dev/Javascript/monorepo-tooling/monorepo-tooling-demos/lerna-2x/packages/app/node_modules'
+26 silly dependencyIsSatisfied ]
+27 verbose dependencyIsSatisfied @testing-library/user-event false
+28 silly hasDependencyInstalled app @types/jest
+29 silly dependencyIsSatisfied [
+29 silly dependencyIsSatisfied   '@types/jest',
+29 silly dependencyIsSatisfied   '^27.5.2',
+29 silly dependencyIsSatisfied   '/Users/brian.dombrowski/Dev/Javascript/monorepo-tooling/monorepo-tooling-demos/lerna-2x/packages/app/node_modules'
+29 silly dependencyIsSatisfied ]
+30 verbose dependencyIsSatisfied @types/jest false
+31 silly hasDependencyInstalled app @types/node
+32 silly dependencyIsSatisfied [
+32 silly dependencyIsSatisfied   '@types/node',
+32 silly dependencyIsSatisfied   '^16.18.69',
+32 silly dependencyIsSatisfied   '/Users/brian.dombrowski/Dev/Javascript/monorepo-tooling/monorepo-tooling-demos/lerna-2x/packages/app/node_modules'
+32 silly dependencyIsSatisfied ]
+33 verbose dependencyIsSatisfied @types/node false
+34 silly hasDependencyInstalled app @types/react
+35 silly dependencyIsSatisfied [
+35 silly dependencyIsSatisfied   '@types/react',
+35 silly dependencyIsSatisfied   '^18.2.46',
+35 silly dependencyIsSatisfied   '/Users/brian.dombrowski/Dev/Javascript/monorepo-tooling/monorepo-tooling-demos/lerna-2x/packages/app/node_modules'
+35 silly dependencyIsSatisfied ]
+36 verbose dependencyIsSatisfied @types/react false
+37 silly hasDependencyInstalled app @types/react-dom
+38 silly dependencyIsSatisfied [
+38 silly dependencyIsSatisfied   '@types/react-dom',
+38 silly dependencyIsSatisfied   '^18.2.18',
+38 silly dependencyIsSatisfied   '/Users/brian.dombrowski/Dev/Javascript/monorepo-tooling/monorepo-tooling-demos/lerna-2x/packages/app/node_modules'
+38 silly dependencyIsSatisfied ]
+39 verbose dependencyIsSatisfied @types/react-dom false
+40 silly hasDependencyInstalled app react
+41 silly dependencyIsSatisfied [
+41 silly dependencyIsSatisfied   'react',
+41 silly dependencyIsSatisfied   '^18.2.0',
+41 silly dependencyIsSatisfied   '/Users/brian.dombrowski/Dev/Javascript/monorepo-tooling/monorepo-tooling-demos/lerna-2x/packages/app/node_modules'
+41 silly dependencyIsSatisfied ]
+42 verbose dependencyIsSatisfied react false
+43 silly hasDependencyInstalled app react-dom
+44 silly dependencyIsSatisfied [
+44 silly dependencyIsSatisfied   'react-dom',
+44 silly dependencyIsSatisfied   '^18.2.0',
+44 silly dependencyIsSatisfied   '/Users/brian.dombrowski/Dev/Javascript/monorepo-tooling/monorepo-tooling-demos/lerna-2x/packages/app/node_modules'
+44 silly dependencyIsSatisfied ]
+45 verbose dependencyIsSatisfied react-dom false
+46 silly hasDependencyInstalled app react-scripts
+47 silly dependencyIsSatisfied [
+47 silly dependencyIsSatisfied   'react-scripts',
+47 silly dependencyIsSatisfied   '5.0.1',
+47 silly dependencyIsSatisfied   '/Users/brian.dombrowski/Dev/Javascript/monorepo-tooling/monorepo-tooling-demos/lerna-2x/packages/app/node_modules'
+47 silly dependencyIsSatisfied ]
+48 verbose dependencyIsSatisfied react-scripts false
+49 silly hasDependencyInstalled app typescript
+50 silly dependencyIsSatisfied [
+50 silly dependencyIsSatisfied   'typescript',
+50 silly dependencyIsSatisfied   '^4.9.5',
+50 silly dependencyIsSatisfied   '/Users/brian.dombrowski/Dev/Javascript/monorepo-tooling/monorepo-tooling-demos/lerna-2x/packages/app/node_modules'
+50 silly dependencyIsSatisfied ]
+51 verbose dependencyIsSatisfied typescript false
+52 silly hasDependencyInstalled @mydomain/lib typescript
+53 silly dependencyIsSatisfied [
+53 silly dependencyIsSatisfied   'typescript',
+53 silly dependencyIsSatisfied   '^5.3.3',
+53 silly dependencyIsSatisfied   '/Users/brian.dombrowski/Dev/Javascript/monorepo-tooling/monorepo-tooling-demos/lerna-2x/packages/lib/node_modules'
+53 silly dependencyIsSatisfied ]
+54 verbose dependencyIsSatisfied typescript false
+55 silly hasDependencyInstalled @mydomain/lib2 typescript
+56 silly dependencyIsSatisfied [
+56 silly dependencyIsSatisfied   'typescript',
+56 silly dependencyIsSatisfied   '^5.3.3',
+56 silly dependencyIsSatisfied   '/Users/brian.dombrowski/Dev/Javascript/monorepo-tooling/monorepo-tooling-demos/lerna-2x/packages/lib2/node_modules'
+56 silly dependencyIsSatisfied ]
+57 verbose dependencyIsSatisfied typescript false
+58 silly hasDependencyInstalled app web-vitals
+59 silly dependencyIsSatisfied [
+59 silly dependencyIsSatisfied   'web-vitals',
+59 silly dependencyIsSatisfied   '^2.1.4',
+59 silly dependencyIsSatisfied   '/Users/brian.dombrowski/Dev/Javascript/monorepo-tooling/monorepo-tooling-demos/lerna-2x/packages/app/node_modules'
+59 silly dependencyIsSatisfied ]
+60 verbose dependencyIsSatisfied web-vitals false
+61 silly root dependencies []
+62 silly leaf dependencies {
+62 silly leaf dependencies   "app": [
+62 silly leaf dependencies     {
+62 silly leaf dependencies       "dependency": "@testing-library/jest-dom@^5.17.0",
+62 silly leaf dependencies       "isSatisfied": false
+62 silly leaf dependencies     },
+62 silly leaf dependencies     {
+62 silly leaf dependencies       "dependency": "@testing-library/react@^13.4.0",
+62 silly leaf dependencies       "isSatisfied": false
+62 silly leaf dependencies     },
+62 silly leaf dependencies     {
+62 silly leaf dependencies       "dependency": "@testing-library/user-event@^13.5.0",
+62 silly leaf dependencies       "isSatisfied": false
+62 silly leaf dependencies     },
+62 silly leaf dependencies     {
+62 silly leaf dependencies       "dependency": "@types/jest@^27.5.2",
+62 silly leaf dependencies       "isSatisfied": false
+62 silly leaf dependencies     },
+62 silly leaf dependencies     {
+62 silly leaf dependencies       "dependency": "@types/node@^16.18.69",
+62 silly leaf dependencies       "isSatisfied": false
+62 silly leaf dependencies     },
+62 silly leaf dependencies     {
+62 silly leaf dependencies       "dependency": "@types/react@^18.2.46",
+62 silly leaf dependencies       "isSatisfied": false
+62 silly leaf dependencies     },
+62 silly leaf dependencies     {
+62 silly leaf dependencies       "dependency": "@types/react-dom@^18.2.18",
+62 silly leaf dependencies       "isSatisfied": false
+62 silly leaf dependencies     },
+62 silly leaf dependencies     {
+62 silly leaf dependencies       "dependency": "react@^18.2.0",
+62 silly leaf dependencies       "isSatisfied": false
+62 silly leaf dependencies     },
+62 silly leaf dependencies     {
+62 silly leaf dependencies       "dependency": "react-dom@^18.2.0",
+62 silly leaf dependencies       "isSatisfied": false
+62 silly leaf dependencies     },
+62 silly leaf dependencies     {
+62 silly leaf dependencies       "dependency": "react-scripts@5.0.1",
+62 silly leaf dependencies       "isSatisfied": false
+62 silly leaf dependencies     },
+62 silly leaf dependencies     {
+62 silly leaf dependencies       "dependency": "typescript@^4.9.5",
+62 silly leaf dependencies       "isSatisfied": false
+62 silly leaf dependencies     },
+62 silly leaf dependencies     {
+62 silly leaf dependencies       "dependency": "web-vitals@^2.1.4",
+62 silly leaf dependencies       "isSatisfied": false
+62 silly leaf dependencies     }
+62 silly leaf dependencies   ],
+62 silly leaf dependencies   "@mydomain/lib": [
+62 silly leaf dependencies     {
+62 silly leaf dependencies       "dependency": "typescript@^5.3.3",
+62 silly leaf dependencies       "isSatisfied": false
+62 silly leaf dependencies     }
+62 silly leaf dependencies   ],
+62 silly leaf dependencies   "@mydomain/lib2": [
+62 silly leaf dependencies     {
+62 silly leaf dependencies       "dependency": "typescript@^5.3.3",
+62 silly leaf dependencies       "isSatisfied": false
+62 silly leaf dependencies     }
+62 silly leaf dependencies   ]
+62 silly leaf dependencies }
+63 info Installing external dependencies
+64 verbose actions 3 actions, concurrency 4
+65 silly installInDir app [
+65 silly installInDir   '@testing-library/jest-dom@^5.17.0',
+65 silly installInDir   '@testing-library/react@^13.4.0',
+65 silly installInDir   '@testing-library/user-event@^13.5.0',
+65 silly installInDir   '@types/jest@^27.5.2',
+65 silly installInDir   '@types/node@^16.18.69',
+65 silly installInDir   '@types/react@^18.2.46',
+65 silly installInDir   '@types/react-dom@^18.2.18',
+65 silly installInDir   'react@^18.2.0',
+65 silly installInDir   'react-dom@^18.2.0',
+65 silly installInDir   'react-scripts@5.0.1',
+65 silly installInDir   'typescript@^4.9.5',
+65 silly installInDir   'web-vitals@^2.1.4'
+65 silly installInDir ]
+66 silly installInDir backup /Users/brian.dombrowski/Dev/Javascript/monorepo-tooling/monorepo-tooling-demos/lerna-2x/packages/app/package.json
+67 silly rename [
+67 silly rename   '/Users/brian.dombrowski/Dev/Javascript/monorepo-tooling/monorepo-tooling-demos/lerna-2x/packages/app/package.json',
+67 silly rename   '/Users/brian.dombrowski/Dev/Javascript/monorepo-tooling/monorepo-tooling-demos/lerna-2x/packages/app/package.json.lerna_backup'
+67 silly rename ]
+68 silly installInDir lib [ 'typescript@^5.3.3' ]
+69 silly installInDir backup /Users/brian.dombrowski/Dev/Javascript/monorepo-tooling/monorepo-tooling-demos/lerna-2x/packages/lib/package.json
+70 silly rename [
+70 silly rename   '/Users/brian.dombrowski/Dev/Javascript/monorepo-tooling/monorepo-tooling-demos/lerna-2x/packages/lib/package.json',
+70 silly rename   '/Users/brian.dombrowski/Dev/Javascript/monorepo-tooling/monorepo-tooling-demos/lerna-2x/packages/lib/package.json.lerna_backup'
+70 silly rename ]
+71 silly installInDir lib2 [ 'typescript@^5.3.3' ]
+72 silly installInDir backup /Users/brian.dombrowski/Dev/Javascript/monorepo-tooling/monorepo-tooling-demos/lerna-2x/packages/lib2/package.json
+73 silly rename [
+73 silly rename   '/Users/brian.dombrowski/Dev/Javascript/monorepo-tooling/monorepo-tooling-demos/lerna-2x/packages/lib2/package.json',
+73 silly rename   '/Users/brian.dombrowski/Dev/Javascript/monorepo-tooling/monorepo-tooling-demos/lerna-2x/packages/lib2/package.json.lerna_backup'
+73 silly rename ]
+74 silly installInDir writing tempJson {
+74 silly installInDir   dependencies: {
+74 silly installInDir     '@testing-library/jest-dom': '^5.17.0',
+74 silly installInDir     '@testing-library/react': '^13.4.0',
+74 silly installInDir     '@testing-library/user-event': '^13.5.0',
+74 silly installInDir     '@types/jest': '^27.5.2',
+74 silly installInDir     '@types/node': '^16.18.69',
+74 silly installInDir     '@types/react': '^18.2.46',
+74 silly installInDir     '@types/react-dom': '^18.2.18',
+74 silly installInDir     react: '^18.2.0',
+74 silly installInDir     'react-dom': '^18.2.0',
+74 silly installInDir     'react-scripts': '5.0.1',
+74 silly installInDir     typescript: '^4.9.5',
+74 silly installInDir     'web-vitals': '^2.1.4'
+74 silly installInDir   }
+74 silly installInDir }
+75 silly installInDir writing tempJson { dependencies: { typescript: '^5.3.3' } }
+76 silly installInDir writing tempJson { dependencies: { typescript: '^5.3.3' } }
+77 silly getExecOpts {
+77 silly getExecOpts   cwd: '/Users/brian.dombrowski/Dev/Javascript/monorepo-tooling/monorepo-tooling-demos/lerna-2x/packages/lib'
+77 silly getExecOpts }
+78 silly installInDir [
+78 silly installInDir   'yarn',
+78 silly installInDir   [ 'install', '--mutex', 'network:42424', '--non-interactive' ]
+78 silly installInDir ]
+79 silly getExecOpts {
+79 silly getExecOpts   cwd: '/Users/brian.dombrowski/Dev/Javascript/monorepo-tooling/monorepo-tooling-demos/lerna-2x/packages/lib2'
+79 silly getExecOpts }
+80 silly installInDir [
+80 silly installInDir   'yarn',
+80 silly installInDir   [ 'install', '--mutex', 'network:42424', '--non-interactive' ]
+80 silly installInDir ]
+81 silly getExecOpts {
+81 silly getExecOpts   cwd: '/Users/brian.dombrowski/Dev/Javascript/monorepo-tooling/monorepo-tooling-demos/lerna-2x/packages/app'
+81 silly getExecOpts }
+82 silly installInDir [
+82 silly installInDir   'yarn',
+82 silly installInDir   [ 'install', '--mutex', 'network:42424', '--non-interactive' ]
+82 silly installInDir ]
+83 silly installInDir cleanup /Users/brian.dombrowski/Dev/Javascript/monorepo-tooling/monorepo-tooling-demos/lerna-2x/packages/app/package.json
+84 silly renameSync [
+84 silly renameSync   '/Users/brian.dombrowski/Dev/Javascript/monorepo-tooling/monorepo-tooling-demos/lerna-2x/packages/app/package.json.lerna_backup',
+84 silly renameSync   '/Users/brian.dombrowski/Dev/Javascript/monorepo-tooling/monorepo-tooling-demos/lerna-2x/packages/app/package.json'
+84 silly renameSync ]
+85 verbose installed leaf app
+86 error execute callback with error
+87 error Error: Command failed: yarn install --mutex network:42424 --non-interactive
+87 error Internal Error: Server answered with HTTP 404
+87 error     at ClientRequest.<anonymous> (/Users/brian.dombrowski/.asdf/installs/nodejs/18.12.0/lib/node_modules/corepack/dist/corepack.js:16060:31)
+87 error     at Object.onceWrapper (node:events:628:26)
+87 error     at ClientRequest.emit (node:events:513:28)
+87 error     at HTTPParser.parserOnIncomingClient (node:_http_client:693:27)
+87 error     at HTTPParser.parserOnHeadersComplete (node:_http_common:117:17)
+87 error     at TLSSocket.socketOnData (node:_http_client:534:22)
+87 error     at TLSSocket.emit (node:events:513:28)
+87 error     at addChunk (node:internal/streams/readable:324:12)
+87 error     at readableAddChunk (node:internal/streams/readable:297:9)
+87 error     at Readable.push (node:internal/streams/readable:234:10)
+87 error
+87 error     at /Users/brian.dombrowski/Dev/Javascript/monorepo-tooling/monorepo-tooling-demos/lerna-2x/node_modules/execa/index.js:236:11

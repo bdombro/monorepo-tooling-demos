@@ -1,5 +1,5 @@
 {
-  "name": "yarn",
+  "name": "yarn-workspaces",
   "version": "1.0.0",
   "license": "ISC",
   "packageManager": "yarn@4.0.2",
@@ -7,9 +7,13 @@
     "packages/*"
   ],
   "scripts": {
+    "bootstrap": "yarn",
+    "bootstrap:with-up:": "yarn workspaces focus app",
     "build": "yarn workspaces foreach -Avp run build",
+    "build:scoped": "yarn workspaces foreach -Rpt --from app run build",
     "build:changed": "yarn workspaces foreach -Avp --since run build",
     "clean": "yarn workspaces foreach -Avp run clean",
+    "exec": "yarn workspaces foreach -A exec pwd",
     "lint": "yarn workspaces foreach -Avp run lint",
     "test": "yarn workspaces foreach -Avp run test",
     "watch": "yarn workspaces foreach -Avp run watch"

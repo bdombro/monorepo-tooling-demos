@@ -1,0 +1,15 @@
+{
+  "name": "npm-workspaces",
+  "version": "1.0.0",
+  "license": "ISC",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run --workspaces --if-present build",
+    "clean": "npm run --workspaces --if-present clean",
+    "lint": "npm run --workspaces --if-present lint",
+    "test": "npm run --workspaces --if-present test",
+    "watch": "npm run --workspaces --if-present watch"
+  }
+}

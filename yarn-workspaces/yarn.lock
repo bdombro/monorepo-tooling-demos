@@ -2266,6 +2266,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@mydomain/lib2@workspace:*, @mydomain/lib2@workspace:packages/lib2":
+  version: 0.0.0-use.local
+  resolution: "@mydomain/lib2@workspace:packages/lib2"
+  dependencies:
+    "@mydomain/lib": "workspace:*"
+    typescript: "npm:^5.3.3"
+  languageName: unknown
+  linkType: soft
+
 "@mydomain/lib@workspace:*, @mydomain/lib@workspace:packages/lib":
   version: 0.0.0-use.local
   resolution: "@mydomain/lib@workspace:packages/lib"
@@ -3717,11 +3726,11 @@ __metadata:
   languageName: node
   linkType: hard
 
-"app2@workspace:packages/app":
+"app@workspace:packages/app":
   version: 0.0.0-use.local
-  resolution: "app2@workspace:packages/app"
+  resolution: "app@workspace:packages/app"
   dependencies:
-    "@mydomain/lib": "workspace:*"
+    "@mydomain/lib2": "workspace:*"
     "@testing-library/jest-dom": "npm:^5.17.0"
     "@testing-library/react": "npm:^13.4.0"
     "@testing-library/user-event": "npm:^13.5.0"
@@ -5532,9 +5541,9 @@ __metadata:
   linkType: hard
 
 "electron-to-chromium@npm:^1.4.601":
-  version: 1.4.620
-  resolution: "electron-to-chromium@npm:1.4.620"
-  checksum: 8e132b906393a9e13638adbbda6b2a47b20120cd3dffef352725e61ef1765971e8f9e1924a4848dd87b4c82a00ca89132b97bc8e6e16e6cd58f9cc1a89fce14d
+  version: 1.4.622
+  resolution: "electron-to-chromium@npm:1.4.622"
+  checksum: 9d4e5ed7bd26cd18c07b0ec2a1644b5e78c56bddaea84fe33558adc45a2f21f39b87d5b13f488d1f09e7baff2deec478decd6b317809c4163263de5b092d2fdb
   languageName: node
   linkType: hard
 
@@ -10683,13 +10692,13 @@ __metadata:
   linkType: hard
 
 "postcss@npm:^8.3.5, postcss@npm:^8.4.21, postcss@npm:^8.4.23, postcss@npm:^8.4.4":
-  version: 8.4.32
-  resolution: "postcss@npm:8.4.32"
+  version: 8.4.33
+  resolution: "postcss@npm:8.4.33"
   dependencies:
     nanoid: "npm:^3.3.7"
     picocolors: "npm:^1.0.0"
     source-map-js: "npm:^1.0.2"
-  checksum: 39308a9195fa34d4dbdd7b58a896cff0c7809f84f7a4ac1b95b68ca86c9138a395addff33075668ed3983d41b90aac05754c445237a9365eb1c3a5602ebd03ad
+  checksum: 16eda83458fcd8a91bece287b5920c7f57164c3ea293e6c80d0ea71ce7843007bcd8592260a5160b9a7f02693e6ac93e2495b02d8c7596d3f3f72c1447e3ba79
   languageName: node
   linkType: hard
 
@@ -13701,9 +13710,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"yarn@workspace:.":
+"yarn-workspaces@workspace:.":
   version: 0.0.0-use.local
-  resolution: "yarn@workspace:."
+  resolution: "yarn-workspaces@workspace:."
   languageName: unknown
   linkType: soft
 

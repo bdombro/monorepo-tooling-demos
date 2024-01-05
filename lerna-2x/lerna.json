@@ -1,0 +1,6 @@
+{
+  "lerna": "2.11.0",
+  "packages": ["packages/*"],
+  "version": "0.0.0",
+  "npmClient": "/Users/brian.dombrowski/Dev/Javascript/monorepo-tooling/monorepo-tooling-demos/lerna-2x/.yarn/releases/yarn-1.22.2.cjs"
+}
