@@ -1,0 +1,17 @@
+{
+  "name": "rush-yarn",
+  "version": "1.0.0",
+  "license": "ISC",
+  "scripts": {
+    "bootstrap": "npx rush install",
+    "bootstrap:with-up:": "npx rush install -t '@mydomain/app'",
+    "build": "npx rush build",
+    "build:scoped": "npx rush build -t '@mydomain/app'",
+    "build:changed": "n/a",
+    "clean": "find packages -mindepth 1 -maxdepth 1 -exec bash -c 'cd {}; npx rushx clean' \\;",
+    "exec": "find packages -mindepth 1 -maxdepth 1 -exec bash -c 'cd {}; pwd' \\;",
+    "lint": "find packages -mindepth 1 -maxdepth 1 -exec bash -c 'cd {}; npx rushx lint",
+    "test": "find packages -mindepth 1 -maxdepth 1 -exec bash -c 'cd {}; npx rushx test",
+    "watch": "n/a"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "name": "rush",
+  "version": "1.0.0",
+  "license": "ISC",
+  "scripts": {
+    "bootstrap": "npx rush update",
+    "bootstrap:with-up:": "npx rush install -t '@mydomain/app'",
+    "build": "npx rush build",
+    "build:scoped": "npx rush build -t '@mydomain/app'",
+    "build:changed": "n/a",
+    "clean": "pnpm --filter '*' clean",
+    "exec": "pnpm --filter '*' exec pwd",
+    "lint": "pnpm --filter '*' lint",
+    "test": "pnpm --filter '*' test",
+    "watch": "pnpm --filter '*' --parallel watch"
+  }
+}
