@@ -17,6 +17,7 @@ Legend: 🌕 is supported; 🌗 is semi-supported, 🌑 is not supported
   - 🌑 hoisting: configurable
   - 🌕 bootstrap speed: 9s
 - Global scripts
+  - 🌑 Install minimal dependencies for workspace + upstream workspaces which depend on it
   - 🌕 Run in multiple workspaces
   - 🌑 Run in glob workspaces
   - 🌑 Run in git-changed workspaces
@@ -42,6 +43,7 @@ Legend: 🌕 is supported; 🌗 is semi-supported, 🌑 is not supported
   - 🌕 hoisting: configurable
   - 🌕 bootstrap speed: 6.5s
 - Global scripts
+  - 🌕 Install minimal dependencies for workspace + upstream workspaces which depend on it
   - 🌕 Run in multiple workspaces
   - 🌕 Run in glob workspaces
   - 🌕 Run in git-changed workspaces
@@ -66,6 +68,7 @@ Legend: 🌕 is supported; 🌗 is semi-supported, 🌑 is not supported
   - 🌕 hoisting: configurable
   - 🌕 bootstrap speed: 5.3s
 - Global scripts
+  - 🌕 Install minimal dependencies for workspace + upstream workspaces which depend on it
   - 🌕 Run in multiple workspaces
   - 🌕 Run in glob workspaces
   - 🌕 Run in git-changed workspaces
@@ -91,6 +94,7 @@ Legend: 🌕 is supported; 🌗 is semi-supported, 🌑 is not supported
   - 🌕 hoisting: configurable
   - 🌕 bootstrap speed: 8.2s
 - Global scripts
+  - 🌕 Install minimal dependencies for workspace + upstream workspaces which depend on it
   - 🌕 Run in multiple workspaces
   - 🌕 Run in glob workspaces
   - 🌕 Run in git-changed workspaces
@@ -115,6 +119,7 @@ Legend: 🌕 is supported; 🌗 is semi-supported, 🌑 is not supported
   - 🌕 hoisting: configurable
   - 🌕 bootstrap speed: 9s
 - Global scripts
+  - 🌕 Install minimal dependencies for workspace + upstream workspaces which depend on it
   - 🌕 Run in multiple workspaces
   - 🌕 Run in glob workspaces
   - 🌕 Run in git-changed workspaces
@@ -141,6 +146,7 @@ lerna 7.x was designed to extend yarn workspaces, but can be configured to suppo
   - 🌕 hoisting: configurable
   - 🌕 bootstrap speed: 9.3s
 - Global scripts
+  - 🌕 Install minimal dependencies for workspace + upstream workspaces which depend on it
   - 🌕 Run in multiple workspaces
   - 🌕 Run in glob workspaces
   - 🌕 Run in git-changed workspaces
@@ -167,18 +173,17 @@ Rush seems to basically be the lerna for pnpm, but sadly breaks some features th
   - 🌕 hoisting: configurable 
   - 🌕 bootstrap speed: 12.1s
 - Global scripts
-  - 🌗 Run in multiple workspaces*
-  - 🌗 Run in glob workspaces
-  - 🌗 Run in git-changed workspaces
-  - 🌗 Run in workspace + upstream workspaces which depend on it
-  - 🌗 Run in workspace + downstream workspaces which depend on it
+  - 🌕 Install minimal dependencies for workspace + upstream workspaces which depend on it
+  - 🌑 Run in multiple workspaces
+  - 🌑 Run in glob workspaces
+  - 🌑 Run in git-changed workspaces
+  - 🌑 Run in workspace + upstream workspaces which depend on it
+  - 🌑 Run in workspace + downstream workspaces which depend on it
   - 🌑 Execute arbitrary terminal commands in multiple workspaces
   - 🌑 Concurrancy
   - 🌕 Observability: Print the package's script command before running (i.e. `react-scripts build`)
   - 🌕 Local caching: scripts will skip workspaces that haven't changed and upstream also hasn't changed
   - 🌕 Remote caching: strongly supports
-
-* Only the `build` operation is supported
 
 ### rush + yarn v1 (unsupported)
 
@@ -195,6 +200,7 @@ pnpm is the default package manager, but it's possible to configure rush to use 
   - 🌕 hoisting: configurable
   - 🌕 bootstrap speed: ?
 - Global scripts
+  - 🌑 Install minimal dependencies for workspace + upstream workspaces which depend on it
   - 🌗 Run in multiple workspaces*
   - 🌗 Run in glob workspaces
   - 🌗 Run in git-changed workspaces
@@ -220,6 +226,7 @@ pnpm is the default package manager, but it's possible to configure rush to use 
   - 🌕🌗🌑 hoisting
   - 🌕🌗🌑 hoisting: configurable
 - Global scripts
+  - 🌕🌗🌑 Install minimal dependencies for workspace + upstream workspaces which depend on it
   - 🌕🌗🌑 Run in multiple workspaces
   - 🌕🌗🌑 Run in glob workspaces
   - 🌕🌗🌑 Run in git-changed workspaces
