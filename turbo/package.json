@@ -2,16 +2,21 @@
   "name": "turbo",
   "private": true,
   "scripts": {
+    "bootstrap": "pnpm install",
+    "bootstrap:with-up:": "pnpm --filter '@mydomain/app...' install"
+  },
+  "example-commands": {
     "build": "turbo build",
-    "dev": "turbo dev",
+    "build:scoped": "turbo build --filter='@mydomain/app...'",
+    "build:changed": "turbo build --filter='[<since>]'",
+    "clean": "turbo clean",
+    "exec": "pnpm --filter '*' exec pwd",
     "lint": "turbo lint",
-    "format": "prettier --write \"**/*.{ts,tsx,md}\""
+    "test": "turbo test",
+    "watch": "turbo watch --parallel"
   },
   "devDependencies": {
-    "@repo/eslint-config": "workspace:*",
-    "@repo/typescript-config": "workspace:*",
-    "prettier": "^3.1.1",
-    "turbo": "latest"
+    "turbo": "1.11.3"
   },
   "packageManager": "pnpm@8.9.0",
   "engines": {
