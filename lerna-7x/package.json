@@ -16,9 +16,9 @@
     "build:changed": "lerna run build --since --sort",
     "clean": "lerna run clean --parallel && lerna clean --yes",
     "exec": "lerna exec -- pwd",
-    "lint": "lerna run lint --parallel",
+    "lint": "lerna run lint",
     "lint:scoped": "lerna run lint --scope=app --include-dependents --stream",
-    "test": "lerna run test --parallel",
+    "test": "lerna run test",
     "test:scoped": "lerna run test --scope=app --include-dependents --stream",
     "watch": "lerna run watch --parallel"
   }

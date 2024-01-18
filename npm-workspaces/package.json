@@ -6,10 +6,11 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run --workspaces --if-present build",
-    "clean": "npm run --workspaces --if-present clean",
-    "lint": "npm run --workspaces --if-present lint",
-    "test": "npm run --workspaces --if-present test",
-    "watch": "npm run --workspaces --if-present watch"
+    "build": "npm run -ws --if-present build",
+    "bootstrap:scoped": "npm i --legacy-peer-deps --include-workspace-root -w ./packages/lib2",
+    "clean": "npm run -ws --if-present clean",
+    "lint": "npm run -ws --if-present lint",
+    "test": "npm run -ws --if-present test",
+    "watch": "npm run -ws --if-present watch"
   }
 }

@@ -19,7 +19,7 @@
   "scripts": {
     "build": "react-scripts build",
     "clean": "rm -rf build",
-    "lint": "tsc",
+    "lint": "tsc && eslint src --ext .js,.jsx,.ts,.tsx",
     "test": "react-scripts test --watchAll=false",
     "watch": "react-scripts start"
   },

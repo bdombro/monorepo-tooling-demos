@@ -19,12 +19,12 @@
     },
     "lint": {
       "dependsOn": [
-        "^lint"
+        "^build"
       ]
     },
     "test": {
       "dependsOn": [
-        "^test"
+        "^build"
       ]
     }
   }

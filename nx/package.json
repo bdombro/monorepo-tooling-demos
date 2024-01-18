@@ -1,0 +1,26 @@
+{
+  "name": "nx",
+  "version": "0.0.0",
+  "license": "MIT",
+  "private": true,
+  "dependencies": {},
+  "devDependencies": {
+    "@nx/js": "17.2.8",
+    "nx": "17.2.8"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "bootstrap": "pnpm install",
+    "bootstrap:with-up:": "pnpm --filter '@mydomain/app...' install",
+    "build": "nx run-many -t build",
+    "build:scoped": "nx build app",
+    "build:changed": "pnpm --filter '[<since>]' build",
+    "clean": "pnpm --filter '*' clean",
+    "exec": "pnpm --filter '*' exec pwd",
+    "lint": "pnpm --filter '*' lint",
+    "test": "pnpm --filter '*' test",
+    "watch": "pnpm --filter '*' --parallel watch"
+  }
+}

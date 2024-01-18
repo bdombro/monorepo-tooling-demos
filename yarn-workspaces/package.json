@@ -9,13 +9,18 @@
   "scripts": {
     "bootstrap": "yarn",
     "bootstrap:with-up:": "yarn workspaces focus app",
-    "build": "yarn workspaces foreach -Avp run build",
-    "build:scoped": "yarn workspaces foreach -Rpt --from app run build",
-    "build:changed": "yarn workspaces foreach -Avp --since run build",
+    "build": "yarn workspaces foreach -Avt run build",
+    "build:scoped": "yarn app build",
+    "build:scoped-with-upstream": "yarn workspaces foreach -Rt --from app run build",
+    "build:changed": "yarn workspaces foreach -Av --since run build",
     "clean": "yarn workspaces foreach -Avp run clean",
-    "exec": "yarn workspaces foreach -A exec pwd",
-    "lint": "yarn workspaces foreach -Avp run lint",
-    "test": "yarn workspaces foreach -Avp run test",
-    "watch": "yarn workspaces foreach -Avp run watch"
+    "clear-resolution-cache": "rm -rf ~/.yarn/berry/metadata/npm",
+    "exec": "yarn workspaces foreach -At exec pwd",
+    "lint": "yarn workspaces foreach -At run lint",
+    "test": "yarn workspaces foreach -Atv run test",
+    "watch": "yarn workspaces foreach -Av run watch"
+  },
+  "dependencies": {
+    "typescript": "^5.3.3"
   }
 }

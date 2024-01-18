@@ -1,258 +1,137 @@
+## Intro
+
+This repo hosts demonstrations of popular JS monorepo tools with the same set of child applications (aka workspaces). The intent is to share learnings and feature comparisons.
 
 
-## Comparisons
+## Context
 
-Legend: 🌕 is supported; 🌗 is semi-supported, 🌑 is not supported
+JS Monorepo tooling emerged in the 2010s, for their many maintenance benefits for larger teams. They make managing multiple apps significantly easier, performant, and reliable.
 
+Starting out, package managers offered little as far as monorepo features goes, leaving a large opportunity for tools like Lerna to gain popularity. As Lerna became more popular, package managers took notice and started incorporating the best features of Lerna. Armed with most of Lerna's features, package manager's basically killed Lerna's appeal and popularity sank. Meanwhile, the community and maintainers of Lerna also sunk. As a result, monorepo tools like Nx, Rush and Turbo started poping up which extended package managers with enterprise features such as cloud caching and CI/CD integrations.
 
-### lerna 2.x
+A few years later, Nrwl (the maintainer of Nx) took over maintenance of Lerna and basically turned Lerna into Nx with backward compatibility for Lerna projects.
 
-lerna is a node application to manage JS monorepos. Version 2x is package-manager agnostic and not maintained.
+## Package managers
 
-- Dependency Management
-  - 🌕 Cross-reference: can depend on other workspaces
-  - 🌗 yarn.lock v1 compat - caveat: hoisting must be disabled
-  - 🌑 {root}/package.json::override support
-  - 🌕 {package}/package.json::override support
-  - 🌑 constraints: enforce dependency rules (similar to syncpack)
-  - 🌕 support private npm repositories
-  - 🌗 hoisting - not available except npm package manager
-  - 🌕 hoisting: configurable
-  - 🌑 bootstrap speed: 
-- Global scripts
-  - 🌕 Install minimal dependencies for workspace + upstream workspaces which depend on it
-  - 🌕 Run in multiple workspaces
-  - 🌕 Run in glob workspaces
-  - 🌕 Run in git-changed workspaces
-  - 🌕 Run in workspace + upstream workspaces which are dependencies
-  - 🌕 Run in workspace + downstream workspaces which depend on it
-  - 🌕 Execute arbitrary terminal commands in multiple workspaces
-  - 🌕 Concurrancy
-  - 🌕 Observability: Print the workspace's script command before running (i.e. `react-scripts build`)
-  - 🌑 Local caching: scripts will skip workspaces that haven't changed and upstream also hasn't changed
-  - 🌑 Remote caching: strongly supports
+A package manager is a tool to download an app's dependencies and facilitate scripting.
 
-### lerna 7.x
+One critical feature of package managers is "resolving" which version of each dependency to install, where to install, how, and dedupe shared dependencies when possible. They create a "lock" file, which is a map of what resolutions were made. Lock files are critical to ensure that the exact same resolutions are made between developers and CI/CD. Without them, JS apps would be terribly unreliable.
 
-lerna is a node application to manage JS monorepos that extends features of yarn-workspaces (see section), namely with caching.
+An unfortunate consiquence of manager-specific resolution is lock-in -- many issues arrise with differing resolutions.
 
-- Dependency Management
-  - 🌕 Cross-reference: can depend on other workspaces
-  - 🌑 yarn.lock v1 compat
-  - 🌕 {root}/package.json::override support
-  - 🌑 {package}/package.json::override support
-  - 🌕 constraints: enforce dependency rules (similar to syncpack)
-  - 🌕 support private npm repositories
-  - 🌕 hoisting
-  - 🌕 hoisting: configurable
-  - 🌕 bootstrap speed: 
-- Global scripts
-  - 🌕 Install minimal dependencies for workspace + upstream workspaces which depend on it
-  - 🌕 Run in multiple workspaces
-  - 🌕 Run in glob workspaces
-  - 🌕 Run in git-changed workspaces
-  - 🌕 Run in workspace + upstream workspaces which are dependencies
-  - 🌕 Run in workspace + downstream workspaces which depend on it
-  - 🌕 Execute arbitrary terminal commands in multiple workspaces
-  - 🌕 Concurrancy
-  - 🌕 Observability: Print the workspace's script command before running (i.e. `react-scripts build`)
-  - 🌕 Local caching: scripts will skip workspaces that haven't changed and upstream also hasn't changed
-  - 🌕 Remote caching: strongly supports
+These days, all JS package managers support the following features:
+
+- cross-reference: workspaces can depend on other workspaces and the tooling connects them
+- install dependencies for a specific workspace without installing all workspaces (aka scoping)
+- execute arbitrary terminal commands in multiple workspaces
+- cross-reference aware scripting (except npm)
+- support private npm repositories
+- hoisting: multiple applications can share dependencies, thereby boosting install performance and reducing disk usage. Sadly, hoisting can break some libraries which were written without hoisting
+  support.
+
+At the same time, non of the package managers support an upgrade path from single app to monorepo without reseting lock files.
+
+### npm
+
+npm is the default package manager for node, and is the least-featured and least-flexible. While testing on an enterprise monorepo, we noticed major limitations.
+
+What's great
+- Comes with nodejs
+- Super lean and lightweight
+- Compatibility is very high when not using monorepo features
+
+What's not
+- monorepo tooling features are lacking vs others
+- sometimes resolves a dependency poorly vs others
+- does mysterious hoisting: hoisting seems to be automatically applied with the monorepo features, and is unpredictable,
+   non-configurable and undocumented
+- no global cache features
 
 
-### lerna 7.x w/ yarn 1.22 & legacy mode
+### yarn
 
-lerna is a node application to manage JS monorepos. lerna 7.x was designed to extend yarn workspaces, but can be configured to support yarn v1 via an minimally maintained plugin.
+yarn is the first and most popular alternative to npm. It gained and remains favor due to reliability, rich feature set and configurability.
 
-- Dependency Management
-  - 🌕 Cross-reference: can depend on other workspaces
-  - 🌕 yarn.lock v1 compat
-  - 🌑 {root}/package.json::override support
-  - 🌕 {package}/package.json::override support
-  - 🌑 constraints: enforce dependency rules (similar to syncpack)
-  - 🌕 support private npm repositories
-  - 🌑 hoisting
-  - 🌕 hoisting: configurable
-  - 🌕 bootstrap speed: 
-- Global scripts
-  - 🌕 Install minimal dependencies for workspace + upstream workspaces which depend on it
-  - 🌕 Run in multiple workspaces
-  - 🌕 Run in glob workspaces
-  - 🌕 Run in git-changed workspaces
-  - 🌕 Run in workspace + upstream workspaces which are dependencies
-  - 🌕 Run in workspace + downstream workspaces which depend on it
-  - 🌕 Execute arbitrary terminal commands in multiple workspaces
-  - 🌕 Concurrancy
-  - 🌕 Observability: Print the workspace's script command before running (i.e. `react-scripts build`)
-  - 🌕 Local caching: scripts will skip workspaces that haven't changed and upstream also hasn't changed
-  - 🌕 Remote caching: strongly supports
+yarn v2 introduced unstable and breaking changes, so many teams are still on v1 (aka legacy), which is minimally supported. yarn is now on v4 and mostly stable, but sadly is not backward compatible with v1.
+
+What's great
+- Good balance of stable and features
+- Leader in hoisting features
+- Leader in configurability
+- Is the most popular alternative to npm
+- Superb performance features
+
+What's not
+- Backwards compat was broken between v1 and v2
 
 
-### npm workspaces
+### pnpm
 
-Built-in features for the default package manager in node (npm). Very light on features.
+pnpm is the newest package manager, and gained popularity due to performance features such as caching and hoisting, which actually inspired many features in newer versions of yarn. These days, it boasts mostly the same features of yarn but is architecturally different, which is why some libraries are compatible with one and not the other.
 
-- Dependency Management
-  - 🌕 Cross-reference: can depend on other workspaces
-  - 🌑 yarn.lock v1 compat
-  - 🌕 {root}/package.json::override support
-  - 🌑 {package}/package.json::override support
-  - 🌑 constraints: enforce dependency rules (similar to syncpack)
-  - 🌑 support private npm repositories
-  - 🌕 hoisting
-  - 🌑 hoisting: configurable
-  - 🌕 bootstrap speed:
-- Global scripts
-  - 🌑 Install minimal dependencies for workspace + upstream workspaces which depend on it
-  - 🌕 Run in multiple workspaces
-  - 🌑 Run in glob workspaces
-  - 🌑 Run in git-changed workspaces
-  - 🌑 Run in workspace + upstream workspaces which depend on it
-  - 🌑 Run in workspace + downstream workspaces which depend on it
-  - 🌑 Execute arbitrary terminal commands in multiple workspaces
-  - 🌑 Concurrancy
-  - 🌕 Observability: Print the package's script command before running (i.e. `react-scripts build`)
-  - 🌑 Local caching: scripts will skip workspaces that haven't changed and upstream also hasn't changed
-  - 🌑 Remote caching: strongly supports
+What's great
+- More helpful features than NPM
+- Superb performance features
+
+What's not
+- Is popular, but substantially less
+- Is more likely to have incompatabilities with dependencies
 
 
-### pnpm workspaces
+## monorepo tools
 
-Built-in features for the pnpm package manager.
-
-- Dependency Management
-  - 🌕 Cross-reference: can depend on other workspaces
-  - 🌑 yarn.lock v1 compat
-  - 🌕 {root}/package.json::override support
-  - 🌕 {package}/package.json::override support
-  - 🌕 constraints: enforce dependency rules (similar to syncpack)
-  - 🌕 support private npm repositories
-  - 🌕 hoisting
-  - 🌕 hoisting: configurable
-  - 🌕 bootstrap speed: 5.3s
-- Global scripts
-  - 🌕 Install minimal dependencies for workspace + upstream workspaces which depend on it
-  - 🌕 Run in multiple workspaces
-  - 🌕 Run in glob workspaces
-  - 🌕 Run in git-changed workspaces
-  - 🌕 Run in workspace + upstream workspaces which depend on it
-  - 🌕 Run in workspace + downstream workspaces which depend on it
-  - 🌕 Execute arbitrary terminal commands in multiple workspaces
-  - 🌕 Concurrancy
-  - 🌕 Observability: Print the package's script command before running (i.e. `react-scripts build`)
-  - 🌑 Local caching: scripts will skip workspaces that haven't changed and upstream also hasn't changed
-  - 🌑 Remote caching: strongly supports
+As mentioned earlier, modern monorepo tools focus on extending the monorepo features of package managers. An unfortunate consequence is loss of flexibility and lacking of legacy package-manager support (ie yarn v1). If absolute flexibility, interoperability, and compatibility is required, Lerna (with the legacy plugin) is the only option.
 
 
-### rush (pnpm)
+### Lerna
 
-rush is a node application to manage JS monorepos that uses pnpm under the hood. I don't love how heavy it is.
+Lerna is a node application to manage JS monorepos. Lerna is configurable to use npm, yarn or pnpm as the package manager, and mostly extends them with CI/CD performance features like build artifact caching. Lerna maintenance and development hit a slump a few years back, until a company called Nrwl adopted it, who are also the creators of the Nx monorepo tool (see next section). For better and worse, Nrwl's motivation to take over Lerna was likely to promote Nrwl's cloud services.
 
-- Dependency Management
-  - 🌕 Cross-reference: can depend on other workspaces
-  - 🌑 yarn.lock v1 compat
-  - 🌕 {root}/package.json::override support
-  - 🌕 {package}/package.json::override support
-  - 🌕 constraints: enforce dependency rules (similar to syncpack)
-  - 🌕 support private npm repositories
-  - 🌕 hoisting
-  - 🌕 hoisting: configurable 
-  - 🌕 bootstrap speed: 12.1s
-- Global scripts
-  - 🌕 Install minimal dependencies for workspace + upstream workspaces which depend on it
-  - 🌑 Run in multiple workspaces
-  - 🌑 Run in glob workspaces
-  - 🌑 Run in git-changed workspaces
-  - 🌑 Run in workspace + upstream workspaces which depend on it
-  - 🌑 Run in workspace + downstream workspaces which depend on it
-  - 🌑 Execute arbitrary terminal commands in multiple workspaces
-  - 🌑 Concurrancy
-  - 🌕 Observability: Print the package's script command before running (i.e. `react-scripts build`)
-  - 🌕 Local caching: scripts will skip workspaces that haven't changed and upstream also hasn't changed
-  - 🌕 Remote caching: strongly supports
+As the first popular JS monorepo tool, Lerna has hugely inspired monorepo features in modern package managers. Because many of the features were eventually adopted into those package managers, the Lerna maintainers decided to stop improving overlapping features and extract them into a plugin called 'legacy-package-management'. Thanks to the legacy features, Lerna is the only modern monorepo tool that supports per-app package manager configuration.
 
 
-### rush + yarn v1 (unsupported)
+What's great
+- flexibility of package managers and lock files
 
-pnpm is the default package manager, but it's possible to configure rush to use yarn v1. However, pnpm is the only officially supported and there are bugs.
-
-
-### turbo + pnpm
-
-turbo is a node application to manage a monorepo, and is compatible with modern versions of npm, yarn and pnpm. It adds more features on top of the package manager, namely caching. Pnpm is my favorite flavor, bc pnpm has more features than the others.
-
-- Dependency Management
-  - 🌕 Cross-reference: can depend on other workspaces
-  - 🌑 yarn.lock v1 compat
-  - 🌕 {root}/package.json::override support
-  - 🌕 {package}/package.json::override support
-  - 🌕 constraints: enforce dependency rules (similar to syncpack)
-  - 🌕 support private npm repositories
-  - 🌕 hoisting
-  - 🌕 hoisting: configurable
-  - 🌕 bootstrap speed: 5.3s
-- Global scripts
-  - 🌕 Install minimal dependencies for workspace + upstream workspaces which depend on it
-  - 🌕 Run in multiple workspaces
-  - 🌕 Run in glob workspaces
-  - 🌕 Run in git-changed workspaces
-  - 🌕 Run in workspace + upstream workspaces which depend on it
-  - 🌕 Run in workspace + downstream workspaces which depend on it
-  - 🌕 Execute arbitrary terminal commands in multiple workspaces
-  - 🌕 Concurrancy
-  - 🌕 Observability: Print the package's script command before running (i.e. `react-scripts build`)
-  - 🌕 Local caching: scripts will skip workspaces that haven't changed and upstream also hasn't changed
-  - 🌕 Remote caching: strongly supports
+What's not
+- somewhat awkward integration and relationship with Nx
+- CI/CD support is weak for non-Nrwl cloud
 
 
-### yarn workspaces
+### Nx
 
-Built-in features for the yarn package manager
+Nx is a node application to manage JS monorepos. Like Lerna, Nx is configurable to use npm, yarn or pnpm as the package manager, and mostly extends them with CI/CD performance features like build artifact caching. Nx was created and is maintained by Nrwl, who's motivation is to promote Nrwl's cloud services.
 
-- Dependency Management
-  - 🌕 Cross-reference: can depend on other workspaces
-  - 🌑 yarn.lock v1 compat
-  - 🌕 {root}/package.json::override support
-  - 🌑 {package}/package.json::override support
-  - 🌕 constraints: enforce dependency rules (similar to syncpack)
-  - 🌕 support private npm repositories
-  - 🌕 hoisting
-  - 🌕 hoisting: configurable
-  - 🌕 bootstrap speed: 6.5s
-- Global scripts
-  - 🌕 Install minimal dependencies for workspace + upstream workspaces which depend on it
-  - 🌕 Run in multiple workspaces
-  - 🌕 Run in glob workspaces
-  - 🌕 Run in git-changed workspaces
-  - 🌕 Run in workspace + upstream workspaces which depend on it
-  - 🌑 Run in workspace + downstream workspaces which depend on it
-  - 🌕 Execute arbitrary terminal commands in multiple workspaces
-  - 🌕 Concurrancy
-  - 🌑 Observability: Print the package's script command before running (i.e. `react-scripts build`)
-  - 🌑 Local caching: scripts will skip workspaces that haven't changed and upstream also hasn't changed
-  - 🌑 Remote caching: strongly supports
+What's great
+- Very lightweight and easy to learn
+
+What's not
+- CI/CD support is weak for non-Nrwl cloud
 
 
-### Template
+### Rush
 
-- Dependency Management
-  - 🌕🌗🌑 Cross-reference: can depend on other workspaces
-  - 🌕🌗🌑 yarn.lock v1 compat
-  - 🌕🌗🌑 {root}/package.json::override support
-  - 🌕🌗🌑 {package}/package.json::override support
-  - 🌕🌗🌑 constraints: enforce dependency rules (similar to syncpack)
-  - 🌕🌗🌑 support private npm repositories
-  - 🌕🌗🌑 hoisting
-  - 🌕🌗🌑 hoisting: configurable
-- Global scripts
-  - 🌕🌗🌑 Install minimal dependencies for workspace + upstream workspaces which depend on it
-  - 🌕🌗🌑 Run in multiple workspaces
-  - 🌕🌗🌑 Run in glob workspaces
-  - 🌕🌗🌑 Run in git-changed workspaces
-  - 🌕🌗🌑 Run in workspace + upstream workspaces which depend on it
-  - 🌕🌗🌑 Run in workspace + downstream workspaces which depend on it
-  - 🌕🌗🌑 Execute arbitrary terminal commands in multiple workspaces
-  - 🌕🌗🌑 Concurrancy
-  - 🌕🌗🌑 Observability: Print the package's script command before running (i.e. `react-scripts build`)
-  - 🌕🌗🌑 Local caching: scripts will skip workspaces that haven't changed and upstream also hasn't changed
-  - 🌕🌗🌑 Remote caching: strongly supports
+Rush is a node application to manage JS monorepos that uses pnpm under the hood. The website claims it supports npm and yarn, but the github issues suggest support is weak. It was created and is maintained by Microsoft, whos motivation is likely to use the tool internally.
+
+Like Lerna, Rush extends pnpm's monorepo features with CI/CD performance features. When comparing Rush to other tools, Rush is more opinionated, more feature rich, and less flexible for better and worse.
+
+What's great
+- Very flexible
+- Tons of features and golden paths
+
+What's not
+- Likely bloated and overkill for smaller teams
+- Moves package-manager config and caches in weird folders. Results in learning curve and possible lock-in
+
+
+### Turbo
+
+Turbo is a mixed-language application to manage JS monorepos. like Lerna+Nx, Turbo is configurable to use npm, yarn or pnpm as the package manager, and mostly extends them with CI/CD performance features like build artifact caching. It was create and maintained by Vercel -- I suspect with motivation to promote Vercel cloud services, similar to Nextjs.
+
+What's great
+- Good balance of features and opinions
+- Performance critical parts are written in Rust for speed boost
+- Very flexible with cloud options
+
+What's not
+- Maybe less hand-holding compared to Rush
