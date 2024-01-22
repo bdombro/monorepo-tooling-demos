@@ -100,10 +100,12 @@ What's not
 
 ### Nx
 
-Nx is a node application to manage JS monorepos. Like Lerna, Nx is configurable to use npm, yarn or pnpm as the package manager, and mostly extends them with CI/CD performance features like build artifact caching. Nx was created and is maintained by Nrwl, who's motivation is to promote Nrwl's cloud services.
+Nx is a mixed-language application to manage JS monorepos. Like Lerna, Nx is configurable to use npm, yarn or pnpm as the package manager, and mostly extends them with CI/CD performance features like build artifact caching. Nx was created and is maintained by Nrwl, who's motivation is to promote Nrwl's cloud services.
 
 What's great
 - Very lightweight and easy to learn
+- Possibly the best cache validation/invalidation to be more DRY ((ref)[https://github.com/vsavkin/large-monorepo])
+- (Beta) Distribute sub-tasks across machines with nx-agents ((ref)[https://nx.dev/ci/features/nx-agents])
 
 What's not
 - CI/CD support is weak for non-Nrwl cloud
@@ -122,6 +124,7 @@ What's great
 What's not
 - Likely bloated and overkill for smaller teams
 - Moves package-manager config and caches in weird folders. Results in learning curve and possible lock-in
+- Is less good at concurancy than others -- but can be combined with (Lage)[https://microsoft.github.io/lage/docs/Introduction/#level-1-legacy-workspace-runners] to boost
 
 
 ### Turbo
@@ -135,3 +138,12 @@ What's great
 
 What's not
 - Maybe less hand-holding compared to Rush
+
+
+## TODO
+
+- Consider (Lage)[https://microsoft.github.io/lage/]
+- Consider (wsrun)[https://github.com/hfour/wsrun]
+- Consider cache performance more
+  - https://github.com/vsavkin/large-monorepo
+- Consider other features as described in (monorepo.tools)[https://monorepo.tools/]
