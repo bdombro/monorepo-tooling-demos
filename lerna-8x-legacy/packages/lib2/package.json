@@ -1,0 +1,18 @@
+{
+  "name": "@mydomain/lib2",
+  "version": "1.0.0",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "echo yarn v$(yarn -v) && tsc",
+    "clean": "rm -rf dist",
+    "lint": "tsc --noEmit",
+    "watch": "tsc --watch"
+  },
+  "license": "ISC",
+  "dependencies": {
+    "@mydomain/lib": "*"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

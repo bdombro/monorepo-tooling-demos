@@ -1,0 +1,35 @@
+diff --git a/dist/index.js b/dist/index.js
+index f10d82c024e5acbb3edaa8b532cdac2e02c48943..f58d303277d3bec103a2b2d4bb22744d124e3ed9 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -2374,10 +2374,10 @@ function npmInstall(pkg, { registry, npmClient, npmClientArgs, npmGlobalStyle, m
+     args.push("--global-style");
+   }
+   if (cmd === "yarn" && mutex) {
+-    args.push("--mutex", mutex);
++    //args.push("--mutex", mutex);
+   }
+   if (cmd === "yarn") {
+-    args.push("--non-interactive");
++    //args.push("--non-interactive");
+   }
+   if (npmClientArgs && npmClientArgs.length) {
+     args.push(...npmClientArgs);
+@@ -3713,7 +3713,7 @@ var init_package_graph = __esm({
+             if (locations.length > 1) {
+               throw new ValidationError(
+                 "ENAME",
+-                [`Package name "${name}" used in multiple packages:`, ...locations].join("\n	")
++                [`Package name "${name}" used in multiple packages:`, ...locations].join("\n  ")
+               );
+             }
+           }
+@@ -4863,7 +4863,7 @@ var require_src = __commonJS({
+           if (filteredPackages.length !== this.targetGraph.size && !this.options.forceLocal) {
+             this.logger.warn("bootstrap", "Installing local packages that do not match filters from registry");
+             this.targetGraph = new PackageGraph(filteredPackages, "allDependencies", this.options.forceLocal);
+-            this.npmConfig.npmClientArgs.unshift(npmClient === "yarn" ? "--pure-lockfile" : "--no-save");
++            // this.npmConfig.npmClientArgs.unshift(npmClient === "yarn" ? "--pure-lockfile" : "--no-save");
+             if (this.npmConfig.subCommand === "ci") {
+               this.npmConfig.subCommand = "install";
+             }

@@ -91,7 +91,7 @@ As the first popular JS monorepo tool, Lerna has hugely inspired monorepo featur
 
 
 What's great
-- flexibility of package managers and lock files
+- flexibility of package managers and lock files. It's even possible to incrementally adopt yarn workspaces -- see lerna-8x-hybrid folder.
 
 What's not
 - somewhat awkward integration and relationship with Nx

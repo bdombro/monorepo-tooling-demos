@@ -1,0 +1,29 @@
+{
+  "name": "root",
+  "private": true,
+  "packageManager": "yarn@4.0.2",
+  "devDependencies": {
+    "@lerna/legacy-package-management": "patch:@lerna/legacy-package-management@npm%3A8.0.2#~/.yarn/patches/@lerna-legacy-package-management-npm-8.0.2-6011816afc.patch",
+    "lerna": "^8.0.1"
+  },
+  "workspaces": [
+    "packages/lib",
+    "packages/lib2"
+  ],
+  "scripts": {
+    "bootstrap": "lerna bootstrap",
+    "//bootstrap:just-root": "yarn workspaces focus root # note cannot be run from script",
+    "bootstrap:with-up": "lerna bootstrap --scope=@mydomain/lib2 --include-filtered-dependencies",
+    "bootstrap:with-down": "lerna bootstrap --scope=@mydomain/lib2 --include-filtered-dependents",
+    "build": "lerna run build",
+    "build:scoped": "lerna run build --scope=app --include-dependents --stream",
+    "build:changed": "lerna run build --since --sort",
+    "clean": "lerna run clean --parallel && lerna clean --yes",
+    "exec": "lerna exec --parallel -- pwd",
+    "lint": "lerna run lint",
+    "lint:scoped": "lerna run lint --scope=app --include-dependents --stream",
+    "test": "lerna run test",
+    "test:scoped": "lerna run test --scope=app --include-dependents --stream",
+    "watch": "lerna run watch --parallel"
+  }
+}

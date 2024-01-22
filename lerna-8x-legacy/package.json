@@ -1,0 +1,23 @@
+{
+  "name": "root",
+  "private": true,
+  "devDependencies": {
+    "@lerna/legacy-package-management": "^8.0.1",
+    "lerna": "^8.0.1"
+  },
+  "scripts": {
+    "bootstrap": "lerna bootstrap",
+    "bootstrap:with-up": "lerna bootstrap --scope=@mydomain/lib2",
+    "bootstrap:with-down": "lerna bootstrap --scope=@mydomain/lib2 --include-filtered-dependents",
+    "build": "lerna run build",
+    "build:scoped": "lerna run build --scope=app --include-dependencies --include-dependents --stream",
+    "build:changed": "lerna run build --since --sort",
+    "clean": "lerna run clean --parallel && lerna clean --yes",
+    "exec": "lerna exec --parallel -- pwd",
+    "lint": "lerna run lint",
+    "lint:scoped": "lerna run lint --scope=app --include-dependents --stream",
+    "test": "lerna run test",
+    "test:scoped": "lerna run test --scope=app --include-dependents --stream",
+    "watch": "lerna run watch --parallel"
+  }
+}
