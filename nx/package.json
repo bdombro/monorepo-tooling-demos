@@ -5,22 +5,26 @@
   "private": true,
   "dependencies": {},
   "devDependencies": {
-    "@nx/js": "17.2.8",
-    "nx": "17.2.8"
+    "@nx/js": "^17",
+    "nx": "^17"
   },
   "workspaces": [
     "packages/*"
   ],
   "scripts": {
     "bootstrap": "pnpm install",
-    "bootstrap:with-up:": "pnpm --filter '@mydomain/app...' install",
+    "bootstrap:with-up": "pnpm --filter 'app...' install",
+    "bootstrap:with-down": "pnpm --filter '...lib' install",
     "build": "nx run-many -t build",
     "build:scoped": "nx build app",
-    "build:changed": "pnpm --filter '[<since>]' build",
-    "clean": "pnpm --filter '*' clean",
+    "build:changed": "nx affected -t build",
+    "clean": "nx run-many -t clean",
     "exec": "pnpm --filter '*' exec pwd",
-    "lint": "pnpm --filter '*' lint",
-    "test": "pnpm --filter '*' test",
-    "watch": "pnpm --filter '*' --parallel watch"
+    "lint": "nx run-many -t lint",
+    "lint:scoped": "nx lint app",
+    "test": "nx run-many -t  test",
+    "test:scoped": "nx test app",
+    "watch": "nx run-many -t watch",
+    "watch2": "pnpm --filter '*' --parallel watch"
   }
 }

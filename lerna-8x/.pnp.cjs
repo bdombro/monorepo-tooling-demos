@@ -41,7 +41,8 @@ const RAW_RUNTIME_STATE =
       [null, {\
         "packageLocation": "./",\
         "packageDependencies": [\
-          ["lerna", "npm:8.0.1"]\
+          ["lerna", "npm:8.0.1"],\
+          ["nx", "virtual:1ffec9f40272cfbcc8bc866c0926b37dbadbd56503d3c42dfb15250a332dffe41ec458f00486f85beb5f9366fa34f769ee650c404cd97a81d0db6242118f9a24#npm:17.2.8"]\
         ],\
         "linkType": "SOFT"\
       }]\
@@ -20372,7 +20373,8 @@ const RAW_RUNTIME_STATE =
         "packageLocation": "./",\
         "packageDependencies": [\
           ["root", "workspace:."],\
-          ["lerna", "npm:8.0.1"]\
+          ["lerna", "npm:8.0.1"],\
+          ["nx", "virtual:1ffec9f40272cfbcc8bc866c0926b37dbadbd56503d3c42dfb15250a332dffe41ec458f00486f85beb5f9366fa34f769ee650c404cd97a81d0db6242118f9a24#npm:17.2.8"]\
         ],\
         "linkType": "SOFT"\
       }]\

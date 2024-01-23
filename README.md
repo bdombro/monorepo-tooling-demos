@@ -7,9 +7,9 @@ This repo hosts demonstrations of popular JS monorepo tools with the same set of
 
 JS Monorepo tooling emerged in the 2010s, for their many maintenance benefits for larger teams. They make managing multiple apps significantly easier, performant, and reliable.
 
-Starting out, package managers offered little as far as monorepo features goes, leaving a large opportunity for tools like Lerna to gain popularity. As Lerna became more popular, package managers took notice and started incorporating the best features of Lerna. Armed with most of Lerna's features, package manager's basically killed Lerna's appeal and popularity sank. Meanwhile, the community and maintainers of Lerna also sunk. As a result, monorepo tools like Nx, Rush and Turbo started poping up which extended package managers with enterprise features such as cloud caching and CI/CD integrations.
+Starting out, package managers offered little as far as monorepo features goes, leaving a large opportunity for tools like Lerna to gain popularity. As Lerna became more popular, package managers took notice and started incorporating the best features of Lerna. Armed with most of Lerna's features, package manager's basically killed Lerna's appeal and popularity sank. Meanwhile, the stewardship of Lerna also sunk. As a result, monorepo tools like Nx, Rush and Turbo started poping up which extended package managers with enterprise features such as cloud caching and CI/CD integrations.
 
-A few years later, Nrwl (the maintainer of Nx) took over maintenance of Lerna and basically turned Lerna into Nx with backward compatibility for Lerna projects.
+A few years later, Nrwl (the creator of Nx) took over stewardship of Lerna and basically turned Lerna into Nx with backward compatibility for Lerna projects.
 
 ## Package managers
 
@@ -85,17 +85,19 @@ As mentioned earlier, modern monorepo tools focus on extending the monorepo feat
 
 ### Lerna
 
-Lerna is a node application to manage JS monorepos. Lerna is configurable to use npm, yarn or pnpm as the package manager, and mostly extends them with CI/CD performance features like build artifact caching. Lerna maintenance and development hit a slump a few years back, until a company called Nrwl adopted it, who are also the creators of the Nx monorepo tool (see next section). For better and worse, Nrwl's motivation to take over Lerna was likely to promote Nrwl's cloud services.
+Lerna is a node application to manage JS monorepos. Lerna is configurable to use npm, yarn or pnpm as the package manager, and mostly extends them with CI/CD performance features like build artifact caching. Lerna stewardship hit a slump a few years back, until a company called Nrwl joined. Nrwl are also the creators of the Nx monorepo tool (see next section). For better and worse, Nrwl's motivation to take over Lerna was likely to promote Nrwl's cloud services.
 
 As the first popular JS monorepo tool, Lerna has hugely inspired monorepo features in modern package managers. Because many of the features were eventually adopted into those package managers, the Lerna maintainers decided to stop improving overlapping features and extract them into a plugin called 'legacy-package-management'. Thanks to the legacy features, Lerna is the only modern monorepo tool that supports per-app package manager configuration.
 
+Additionally, Lerna uses Nx to power it's caching and CI/CD features.
 
 What's great
-- flexibility of package managers and lock files. It's even possible to incrementally adopt yarn workspaces -- see lerna-8x-hybrid folder.
+- flexibility of package managers and lock files. It's even possible to incrementally adopt yarn workspaces with a minor plugin patch -- see the lerna-8x-hybrid folder.
 
 What's not
 - somewhat awkward integration and relationship with Nx
 - CI/CD support is weak for non-Nrwl cloud
+- New feature development is slow, other than CI/CD seems slow
 
 
 ### Nx
@@ -129,7 +131,7 @@ What's not
 
 ### Turbo
 
-Turbo is a mixed-language application to manage JS monorepos. like Lerna+Nx, Turbo is configurable to use npm, yarn or pnpm as the package manager, and mostly extends them with CI/CD performance features like build artifact caching. It was create and maintained by Vercel -- I suspect with motivation to promote Vercel cloud services, similar to Nextjs.
+Turbo is a mixed-language application to manage JS monorepos. like Lerna+Nx, Turbo is configurable to use npm, yarn or pnpm as the package manager, and mostly extends them with CI/CD performance features like build artifact caching. It was created and is maintained by Vercel -- I suspect with motivation to promote Vercel cloud services, similar to Nextjs.
 
 What's great
 - Good balance of features and opinions

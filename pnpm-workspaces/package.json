@@ -4,7 +4,8 @@
   "license": "ISC",
   "scripts": {
     "bootstrap": "pnpm install",
-    "bootstrap:with-up:": "pnpm --filter '@mydomain/app...' install",
+    "bootstrap:with-up": "pnpm --filter '@mydomain/app...' install",
+    "bootstrap:with-down": "pnpm --filter '...@mydomain/app' install",
     "build": "pnpm --filter '*' build",
     "build:scoped": "pnpm --filter '@mydomain/app...' build",
     "build:changed": "pnpm --filter '[<since>]' build",

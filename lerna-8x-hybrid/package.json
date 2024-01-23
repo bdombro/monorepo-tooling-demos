@@ -4,7 +4,8 @@
   "packageManager": "yarn@4.0.2",
   "devDependencies": {
     "@lerna/legacy-package-management": "patch:@lerna/legacy-package-management@npm%3A8.0.2#~/.yarn/patches/@lerna-legacy-package-management-npm-8.0.2-6011816afc.patch",
-    "lerna": "^8.0.1"
+    "lerna": "^8.0.1",
+    "nx": "^17"
   },
   "workspaces": [
     "packages/lib",
@@ -13,17 +14,17 @@
   "scripts": {
     "bootstrap": "lerna bootstrap",
     "//bootstrap:just-root": "yarn workspaces focus root # note cannot be run from script",
-    "bootstrap:with-up": "lerna bootstrap --scope=@mydomain/lib2 --include-filtered-dependencies",
-    "bootstrap:with-down": "lerna bootstrap --scope=@mydomain/lib2 --include-filtered-dependents",
-    "build": "lerna run build",
-    "build:scoped": "lerna run build --scope=app --include-dependents --stream",
-    "build:changed": "lerna run build --since --sort",
-    "clean": "lerna run clean --parallel && lerna clean --yes",
+    "bootstrap:with-up": "lerna bootstrap --scope=app --include-dependencies",
+    "bootstrap:with-down": "lerna bootstrap --scope=@mydomain/lib2 --include-dependents",
+    "build": "nx run-many -t build",
+    "build:scoped": "nx build app",
+    "build:changed": "nx affected -t build",
+    "clean": "nx run-many -t clean && lerna clean --yes",
     "exec": "lerna exec --parallel -- pwd",
-    "lint": "lerna run lint",
-    "lint:scoped": "lerna run lint --scope=app --include-dependents --stream",
-    "test": "lerna run test",
-    "test:scoped": "lerna run test --scope=app --include-dependents --stream",
-    "watch": "lerna run watch --parallel"
+    "lint": "nx run-many -t lint",
+    "lint:scoped": "nx lint app",
+    "test": "nx run-many -t  test",
+    "test:scoped": "nx test app",
+    "watch": "nx run-many -t watch"
   }
 }

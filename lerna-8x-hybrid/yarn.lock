@@ -214,7 +214,7 @@ __metadata:
 
 "@lerna/legacy-package-management@patch:@lerna/legacy-package-management@npm%3A8.0.2#~/.yarn/patches/@lerna-legacy-package-management-npm-8.0.2-6011816afc.patch":
   version: 8.0.2
-  resolution: "@lerna/legacy-package-management@patch:@lerna/legacy-package-management@npm%3A8.0.2#~/.yarn/patches/@lerna-legacy-package-management-npm-8.0.2-6011816afc.patch::version=8.0.2&hash=1f65fd"
+  resolution: "@lerna/legacy-package-management@patch:@lerna/legacy-package-management@npm%3A8.0.2#~/.yarn/patches/@lerna-legacy-package-management-npm-8.0.2-6011816afc.patch::version=8.0.2&hash=505597"
   dependencies:
     "@npmcli/arborist": "npm:7.2.2"
     "@npmcli/run-script": "npm:7.0.2"
@@ -278,7 +278,7 @@ __metadata:
     write-file-atomic: "npm:5.0.1"
     write-pkg: "npm:4.0.0"
     yargs: "npm:17.7.2"
-  checksum: 770cef5d586e034f2b31078acf90943839fef61131d4f39a61c64fdd3c8f5dba24963f4f425f575b2b2456371bdc8d0dc2808d6ca809fc8e16c3e5d13271bb4d
+  checksum: a8a60a36ebd79047f15f8ecd6173d64828403b5a4e2c16ecb2806caa3662c2e39e78d8f406b164fafc0fa3bff43bf5bce2aa4b55614c11d5decaaab099b88852
   languageName: node
   linkType: hard
 
@@ -286,11 +286,12 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@mydomain/lib2@workspace:packages/lib2"
   dependencies:
+    "@mydomain/lib": "npm:*"
     typescript: "npm:^5.3.3"
   languageName: unknown
   linkType: soft
 
-"@mydomain/lib@workspace:packages/lib":
+"@mydomain/lib@npm:*, @mydomain/lib@workspace:packages/lib":
   version: 0.0.0-use.local
   resolution: "@mydomain/lib@workspace:packages/lib"
   dependencies:
@@ -4091,7 +4092,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"nx@npm:17.2.8, nx@npm:>=17.1.2 < 18":
+"nx@npm:17.2.8, nx@npm:>=17.1.2 < 18, nx@npm:^17":
   version: 17.2.8
   resolution: "nx@npm:17.2.8"
   dependencies:
@@ -4913,6 +4914,7 @@ __metadata:
   dependencies:
     "@lerna/legacy-package-management": "patch:@lerna/legacy-package-management@npm%3A8.0.2#~/.yarn/patches/@lerna-legacy-package-management-npm-8.0.2-6011816afc.patch"
     lerna: "npm:^8.0.1"
+    nx: "npm:^17"
   languageName: unknown
   linkType: soft
 

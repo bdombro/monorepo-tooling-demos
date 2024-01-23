@@ -6,20 +6,21 @@
     "packages/*"
   ],
   "devDependencies": {
-    "lerna": "^8.0.1"
+    "lerna": "^8.0.1",
+    "nx": "^17"
   },
   "scripts": {
     "bootstrap": "yarn",
     "bootstrap:with-up:": "yarn workspaces focus app",
-    "build": "lerna run build",
-    "build:scoped": "lerna run build --scope=app --include-dependents --stream",
-    "build:changed": "lerna run build --since --sort",
-    "clean": "lerna run clean --parallel && lerna clean --yes",
-    "exec": "lerna exec -- pwd",
-    "lint": "lerna run lint",
-    "lint:scoped": "lerna run lint --scope=app --include-dependents --stream",
-    "test": "lerna run test",
-    "test:scoped": "lerna run test --scope=app --include-dependents --stream",
-    "watch": "lerna run watch --parallel"
+    "build": "nx run-many -t build",
+    "build:scoped": "nx build app",
+    "build:changed": "nx affected -t build",
+    "clean": "nx run-many -t clean && lerna clean --yes",
+    "exec": "lerna exec --parallel -- pwd",
+    "lint": "nx run-many -t lint",
+    "lint:scoped": "nx lint app",
+    "test": "nx run-many -t  test",
+    "test:scoped": "nx test app",
+    "watch": "nx run-many -t watch"
   }
 }

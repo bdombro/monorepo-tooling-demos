@@ -1,35 +1,68 @@
 diff --git a/dist/index.js b/dist/index.js
-index f10d82c024e5acbb3edaa8b532cdac2e02c48943..f58d303277d3bec103a2b2d4bb22744d124e3ed9 100644
+index f10d82c024e5acbb3edaa8b532cdac2e02c48943..3ec9b17cc7af86e79b18ce020b598b10f11b6a2e 100644
 --- a/dist/index.js
 +++ b/dist/index.js
-@@ -2374,10 +2374,10 @@ function npmInstall(pkg, { registry, npmClient, npmClientArgs, npmGlobalStyle, m
-     args.push("--global-style");
-   }
-   if (cmd === "yarn" && mutex) {
--    args.push("--mutex", mutex);
-+    //args.push("--mutex", mutex);
-   }
-   if (cmd === "yarn") {
--    args.push("--non-interactive");
-+    //args.push("--non-interactive");
-   }
-   if (npmClientArgs && npmClientArgs.length) {
-     args.push(...npmClientArgs);
-@@ -3713,7 +3713,7 @@ var init_package_graph = __esm({
-             if (locations.length > 1) {
-               throw new ValidationError(
-                 "ENAME",
--                [`Package name "${name}" used in multiple packages:`, ...locations].join("\n	")
-+                [`Package name "${name}" used in multiple packages:`, ...locations].join("\n  ")
-               );
-             }
+@@ -5129,19 +5129,54 @@ var require_src = __commonJS({
+           // Use `npm install --global-style` for leaves when hoisting is enabled
+           npmGlobalStyle: !!this.options.hoist
+         });
++        
++        const isV1 = (leafNode) => {
++          let isV1 = false;
++          try {
++            isV1 = require('fs').readFileSync(leafNode.location + '/.yarnrc.yml', 'utf8').includes('yarn-1');
++          } catch(e) {}
++          return isV1
++        }
++        
++        let v4s = [];
+         leaves.forEach((leafRecord, leafNode) => {
+-          const deps = Array.from(leafRecord);
+-          if (deps.some(({ isSatisfied }) => !isSatisfied)) {
+-            actions.push(() => {
+-              const dependencies = deps.map(({ dependency }) => dependency);
+-              const promise = npmInstallDependencies(leafNode.pkg, dependencies, leafNpmConfig);
+-              return pulseTillDone(promise).then(() => {
+-                tracker.verbose("installed leaf", leafNode.name);
+-                tracker.completeWork(1);
++          if (isV1(leafNode)) {
++            const deps = Array.from(leafRecord);
++            if (deps.some(({ isSatisfied }) => !isSatisfied)) {
++              actions.push(() => {
++                const dependencies = deps.map(({ dependency }) => dependency);
++                const promise = npmInstallDependencies(leafNode.pkg, dependencies, leafNpmConfig);
++                return pulseTillDone(promise).then(() => {
++                  tracker.verbose("installed leaf", leafNode.name);
++                  tracker.completeWork(1);
++                });
+               });
+-            });
++            }
++          } else {
++            v4s.push(leafNode)
            }
-@@ -4863,7 +4863,7 @@ var require_src = __commonJS({
-           if (filteredPackages.length !== this.targetGraph.size && !this.options.forceLocal) {
-             this.logger.warn("bootstrap", "Installing local packages that do not match filters from registry");
-             this.targetGraph = new PackageGraph(filteredPackages, "allDependencies", this.options.forceLocal);
--            this.npmConfig.npmClientArgs.unshift(npmClient === "yarn" ? "--pure-lockfile" : "--no-save");
-+            // this.npmConfig.npmClientArgs.unshift(npmClient === "yarn" ? "--pure-lockfile" : "--no-save");
-             if (this.npmConfig.subCommand === "ci") {
-               this.npmConfig.subCommand = "install";
-             }
+         });
++
++        if (v4s.length) {
++          actions.push(() => {
++            const v4Names = v4s.map(l => l.name);
++            const args = ['workspaces', 'focus', 'root', ...v4Names];
++            tracker.verbose("npmInstall", ['yarn', args]);
++            let promise = Promise.resolve();
++            try {
++              promise = childProcess8.exec('yarn', args, {
++                cwd: v4s[0].pkg.rootPath,
++              })
++            } catch(e) {
++              tracker.error(e)
++            }
++            return pulseTillDone(promise).then(() => {
++              tracker.verbose("installed ws leafs ", v4Names.join(','));
++              tracker.completeWork(1);
++            });
++          });
++        }
++
+         if (actions.length) {
+           tracker.info("", "Installing external dependencies");
+           tracker.verbose("actions", "%d actions, concurrency %d", actions.length, this.concurrency);
