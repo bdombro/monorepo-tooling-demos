@@ -17,7 +17,7 @@ A package manager is a tool to download an app's dependencies and facilitate scr
 
 One critical feature of package managers is "resolving" which version of each dependency to install, where to install, how, and dedupe shared dependencies when possible. They create a "lock" file, which is a map of what resolutions were made. Lock files are critical to ensure that the exact same resolutions are made between developers and CI/CD. Without them, JS apps would be terribly unreliable.
 
-An unfortunate consiquence of manager-specific resolution is lock-in -- many issues arrise with differing resolutions.
+An unfortunate consequence of manager-specific resolution is lock-in -- many issues arise with differing resolutions.
 
 These days, all JS package managers support the following features:
 
@@ -89,15 +89,14 @@ Lerna is a node application to manage JS monorepos. Lerna is configurable to use
 
 As the first popular JS monorepo tool, Lerna has hugely inspired monorepo features in modern package managers. Because many of the features were eventually adopted into those package managers, the Lerna maintainers decided to stop improving overlapping features and extract them into a plugin called 'legacy-package-management'. Thanks to the legacy features, Lerna is the only modern monorepo tool that supports per-app package manager configuration.
 
-Additionally, Lerna uses Nx to power it's caching and CI/CD features.
+Note: Lerna inherits the pros and cons of the Nx (see below section) tool bc it uses Nx under the hood.
 
 What's great
 - flexibility of package managers and lock files. It's even possible to incrementally adopt yarn workspaces with a minor plugin patch -- see the lerna-8x-hybrid folder.
 
 What's not
 - somewhat awkward integration and relationship with Nx
-- CI/CD support is weak for non-Nrwl cloud
-- New feature development is slow, other than CI/CD seems slow
+- Development of non-CI/CD features is slow
 
 
 ### Nx
@@ -107,7 +106,7 @@ Nx is a mixed-language application to manage JS monorepos. Like Lerna, Nx is con
 What's great
 - Very lightweight and easy to learn
 - Possibly the best cache validation/invalidation to be more DRY ((ref)[https://github.com/vsavkin/large-monorepo])
-- (Beta) Distribute sub-tasks across machines with nx-agents ((ref)[https://nx.dev/ci/features/nx-agents])
+- (Beta) Distributed computing with nx-agents ((ref)[https://nx.dev/ci/features/nx-agents])
 
 What's not
 - CI/CD support is weak for non-Nrwl cloud
@@ -126,7 +125,7 @@ What's great
 What's not
 - Likely bloated and overkill for smaller teams
 - Moves package-manager config and caches in weird folders. Results in learning curve and possible lock-in
-- Is less good at concurancy than others -- but can be combined with (Lage)[https://microsoft.github.io/lage/docs/Introduction/#level-1-legacy-workspace-runners] to boost
+- Is less good at concurancy than others -- but can be combined with (Lage)[https://microsoft.github.io/lage/docs/Introduction/#level-1-legacy-workspace-runners] to boost. Still less fast than Nx even with Lage ((ref)[https://github.com/vsavkin/large-monorepo])
 
 
 ### Turbo
