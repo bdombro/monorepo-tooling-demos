@@ -214,7 +214,7 @@ __metadata:
 
 "@lerna/legacy-package-management@patch:@lerna/legacy-package-management@npm%3A8.0.2#~/.yarn/patches/@lerna-legacy-package-management-npm-8.0.2-6011816afc.patch":
   version: 8.0.2
-  resolution: "@lerna/legacy-package-management@patch:@lerna/legacy-package-management@npm%3A8.0.2#~/.yarn/patches/@lerna-legacy-package-management-npm-8.0.2-6011816afc.patch::version=8.0.2&hash=505597"
+  resolution: "@lerna/legacy-package-management@patch:@lerna/legacy-package-management@npm%3A8.0.2#~/.yarn/patches/@lerna-legacy-package-management-npm-8.0.2-6011816afc.patch::version=8.0.2&hash=ee9127"
   dependencies:
     "@npmcli/arborist": "npm:7.2.2"
     "@npmcli/run-script": "npm:7.0.2"
@@ -278,7 +278,7 @@ __metadata:
     write-file-atomic: "npm:5.0.1"
     write-pkg: "npm:4.0.0"
     yargs: "npm:17.7.2"
-  checksum: a8a60a36ebd79047f15f8ecd6173d64828403b5a4e2c16ecb2806caa3662c2e39e78d8f406b164fafc0fa3bff43bf5bce2aa4b55614c11d5decaaab099b88852
+  checksum: 0e7b2bcaa491040e1114773e9fcde1376a0504bb57a7ad11cc5ab4847e3c821facf2c9fc4f495b75443a298ff0a5e687f8447912d32c44385f4c5ab96bf52848
   languageName: node
   linkType: hard
 
@@ -287,6 +287,7 @@ __metadata:
   resolution: "@mydomain/lib2@workspace:packages/lib2"
   dependencies:
     "@mydomain/lib": "npm:*"
+    lodash: "npm:^4.0.0"
     typescript: "npm:^5.3.3"
   languageName: unknown
   linkType: soft
@@ -295,7 +296,10 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@mydomain/lib@workspace:packages/lib"
   dependencies:
+    lodash: "npm:4.10.0"
     typescript: "npm:^5.3.3"
+  peerDependencies:
+    lodash: ^4.0.0
   languageName: unknown
   linkType: soft
 
@@ -3372,7 +3376,14 @@ __metadata:
   languageName: node
   linkType: hard
 
-"lodash@npm:^4.17.21":
+"lodash@npm:4.10.0":
+  version: 4.10.0
+  resolution: "lodash@npm:4.10.0"
+  checksum: ebe36540b52dd276234f0c0fbb27cb9e1d08cb6f9b45ef6822fe6b1835b51f5a50f3e6dcfcc26e290b7a83ea97935ccf13149210e0c27cae23cfc3b07f22c9a4
+  languageName: node
+  linkType: hard
+
+"lodash@npm:^4.0.0, lodash@npm:^4.17.21":
   version: 4.17.21
   resolution: "lodash@npm:4.17.21"
   checksum: d8cbea072bb08655bb4c989da418994b073a608dffa608b09ac04b43a791b12aeae7cd7ad919aa4c925f33b48490b5cfe6c1f71d827956071dae2e7bb3a6b74c

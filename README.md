@@ -25,7 +25,7 @@ These days, all JS package managers support the following features:
 - install dependencies for a specific workspace without installing all workspaces (aka scoping)
 - execute arbitrary terminal commands in multiple workspaces
 - cross-reference aware scripting (except npm)
-- support private npm repositories
+- support private npm packages
 - hoisting: multiple applications can share dependencies, thereby boosting install performance and reducing disk usage. Sadly, hoisting can break some libraries which were written without hoisting
   support.
 
