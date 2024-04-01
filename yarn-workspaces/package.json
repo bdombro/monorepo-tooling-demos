@@ -1,5 +1,5 @@
 {
-  "name": "yarn-workspaces",
+  "name": "root",
   "version": "1.0.0",
   "license": "ISC",
   "packageManager": "yarn@4.0.2",
