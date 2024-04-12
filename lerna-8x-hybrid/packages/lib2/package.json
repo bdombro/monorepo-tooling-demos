@@ -1,5 +1,5 @@
 {
-  "name": "@mydomain/lib2",
+  "name": "@app/lib2",
   "version": "1.0.0",
   "main": "dist/index.js",
   "scripts": {
@@ -10,8 +10,7 @@
   },
   "license": "ISC",
   "dependencies": {
-    "@mydomain/lib": "*",
-    "lodash": "^4.0.0"
+    "@app/lib": "*"
   },
   "devDependencies": {
     "typescript": "^5.3.3"

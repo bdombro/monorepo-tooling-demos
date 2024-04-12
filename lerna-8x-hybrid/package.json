@@ -9,22 +9,27 @@
   },
   "workspaces": [
     "packages/lib",
-    "packages/lib2"
+    "packages/lib2",
+    "packages/lib3"
   ],
   "scripts": {
     "bootstrap": "lerna bootstrap",
     "//bootstrap:just-root": "yarn workspaces focus root # note cannot be run from script",
-    "bootstrap:with-up": "lerna bootstrap --scope=app --include-dependencies",
-    "bootstrap:with-down": "lerna bootstrap --scope=@mydomain/lib2 --include-dependents",
+    "bootstrap:with-up": "lerna bootstrap --scope=@app/lib3 --include-dependencies",
+    "bootstrap:with-down": "lerna bootstrap --scope=@app/lib3 --include-dependents",
     "build": "nx run-many -t build",
     "build:scoped": "nx build app",
     "build:changed": "nx affected -t build",
     "clean": "nx run-many -t clean && lerna clean --yes",
     "exec": "lerna exec --parallel -- pwd",
+    "pack2": "lerna exec --scope=@app/lib --include-dependencies -- yarn pack",
     "lint": "nx run-many -t lint",
     "lint:scoped": "nx lint app",
     "test": "nx run-many -t  test",
     "test:scoped": "nx test app",
     "watch": "nx run-many -t watch"
+  },
+  "dependencies": {
+    "chokidar": "^3.6.0"
   }
 }
