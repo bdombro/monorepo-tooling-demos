@@ -23,13 +23,22 @@ import pathNode from "path";
 import util from "util";
 import chokidar from "chokidar";
 
-const defaultDomain = "@app";
+const logLevel = parseInt(process.env.LOG || "1");
+const domainDefault = process.env.DOMAIN_DEFAULT || "@app";
 
-async function main(packageName, action) {
+async function main(
+  /** the full name of a package including domain, or short if using default domain */
+  pkgName,
+  /** action to take: see usage */
+  action
+) {
   const usage = `
-  Usage: [DEBUG=1] node fix-deps.mjs {packageName} {action}
+  Usage: node fix-deps.mjs {packageName} {action}
 
-  DEBUG=1: enables debug logs
+  Env:
+  LOG=n: sets log level, 1-4 (default 1)
+  DOMAIN_DEFAULT=@app: sets the default domain (default @app) for
+    package names. You may omit the domain if using the default.
 
   Actions:
   init:
@@ -47,29 +56,29 @@ async function main(packageName, action) {
   sync: rsyncs the dist folders of all cross-linked packages
   watch: sync with watch mode
   `;
-  if (!packageName) return log1(usage);
+  if (!pkgName) return console.log(usage);
   switch (action) {
     case "init":
-      await fixDeps(packageName);
+      await fixDeps(pkgName);
       break;
     case "un-init":
-      await unfixDeps(packageName);
+      await unfixDeps(pkgName);
       break;
     case "re-init":
-      await unfixDeps(packageName);
-      await fixDeps(packageName);
+      await unfixDeps(pkgName);
+      await fixDeps(pkgName);
       break;
     case "build":
-      await fixDeps(packageName, { minimalBuilds: false });
+      await fixDeps(pkgName, { minimalBuilds: false });
       break;
     case "sync":
-      await rsyncDists(packageName);
+      await rsyncDists(pkgName);
       break;
     case "watch":
-      await rsyncDists(packageName, true);
+      await rsyncDists(pkgName, true);
       break;
     default:
-      return log1(usage);
+      return console.log(usage);
   }
 }
 
@@ -225,26 +234,26 @@ export async function rsyncDists(pkgName, watch = false) {
 
   const meta = await gpm(pkgName);
 
-  const wsDepPath = `${meta.path}/node_modules/${meta.domain}`;
+  const nestedNodeModules = `${meta.path}/node_modules`;
 
   // bail if there are no workspace deps
-  if (!(await fsStatOrNull(wsDepPath))) {
+  if (!(await fsStatOrNull(nestedNodeModules))) {
     log1("No ws packages to sync");
     return;
   }
 
   async function doSync() {
     const delta = await Promise.all(
-      meta.crosslinks.map(async (crosslink) =>
+      Object.values(meta.crosslinks).map(async (cl) =>
         execP(
-          `rsync -av --delete packages/${crosslink}/dist/ ` +
-            `${wsDepPath}/${crosslink}/dist`
+          `rsync -av --delete ${cl.path}/dist/ ` +
+            `${nestedNodeModules}/${cl.name}/dist`
         ).then((r) =>
           (r.match(/done([\s\S]*?)\n\n/)?.[1] ?? "")
             .split("\n")
             .map((l) => l.trim())
             .filter(Boolean)
-            .forEach((l) => console.log(`${crosslink}: ${l} upserted`))
+            .forEach((l) => log1(`${cl.name}: ${l} upserted`))
         )
       )
     );
@@ -259,11 +268,11 @@ export async function rsyncDists(pkgName, watch = false) {
       persistent: true,
     });
     watcher.on("change", () => doSync());
-    for (const l of wsDeps) {
-      const distPath = `packages/${l}/dist`;
-      log1(`watching dep: ${ws.domain}/${l}/dist`);
+    Object.values(meta.crosslinks).map(async (cl) => {
+      const distPath = `${cl.path}/dist/`;
+      log1(`watching dep: ${distPath}`);
       watcher.add(distPath);
-    }
+    });
     return () => {
       watcher.close().then(() => log1("resyncDists:end"));
     };
@@ -324,7 +333,7 @@ findWorkspace.last = null;
  */
 async function gpm(pkgName) {
   if (!pkgName) throw Error("packageName is required");
-  if (!pkgName.includes("/")) pkgName = `${defaultDomain}/${pkgName}`;
+  if (!pkgName.includes("/")) pkgName = `${domainDefault}/${pkgName}`;
   log2("gpm:start", pkgName);
   let cached = gpm.cache[pkgName];
   if (cached?.loading) {
@@ -489,7 +498,6 @@ async function execP(...execArgs) {
   return stdout;
 }
 
-const logLevel = parseInt(process.env.LOG || "1");
 const logn = (n) =>
   logLevel >= n
     ? (...args) => {
