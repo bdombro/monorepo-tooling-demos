@@ -27,21 +27,40 @@ const defaultDomain = "@app";
 
 async function main(packageName, action) {
   const usage = `
-  Usage: [DEBUG=1] node fix-deps.mjs {packageName} {init|reset|sync|watch}
+  Usage: [DEBUG=1] node fix-deps.mjs {packageName} {action}
 
   DEBUG=1: enables debug logs
-  init: re-installs cross-linked packages as if they were file dependencies without side-effects
+
+  Actions:
+  init:
+    - re-installs cross-linked packages as if they were
+      file dependencies and builds them, bottom-up
+    - bottom-up: builds a dep tree of cross-linked packages
+      and processes them in order of dependencies, so that
+      build artifacts are ready for dependents
+    - resets the package.json and yarn.lock files so that
+      lerna+nx are unaware
+  un-init: undoes the changes made by init
+  re-init: un-inits and then re-inits
+  build: init + build 
   reset: reverts the changes made by init
-  sync: syncs the dist folders of all cross-linked packages in a package
+  sync: rsyncs the dist folders of all cross-linked packages
   watch: sync with watch mode
   `;
-  if (!packageName) return console.error(usage);
+  if (!packageName) return log1(usage);
   switch (action) {
     case "init":
       await fixDeps(packageName);
       break;
-    case "reset":
+    case "un-init":
       await unfixDeps(packageName);
+      break;
+    case "re-init":
+      await unfixDeps(packageName);
+      await fixDeps(packageName);
+      break;
+    case "build":
+      await fixDeps(packageName, { minimalBuilds: false });
       break;
     case "sync":
       await rsyncDists(packageName);
@@ -50,30 +69,41 @@ async function main(packageName, action) {
       await rsyncDists(packageName, true);
       break;
     default:
-      console.error(usage);
+      return log1(usage);
   }
 }
 
 /**
- * Re-installs cross-linked packages as if they were file dependencies without side-effects
- *
- * aka deps, builds, and packs the dependencies of a package by name, while respecting topology
+ * fixDeps:
+ * - re-installs cross-linked packages as if they were
+ *   file dependencies and builds them, bottom-up
+ * - bottom-up: builds a dep tree of cross-linked packages
+ *   and processes them in order of dependencies, so that
+ *   build artifacts are ready for dependents
+ * - resets the package.json and yarn.lock files so that
+ *   lerna+nx are unaware
  */
 export async function fixDeps(
   /** the full name of a package including domain, or short if using default domain */
-  pkgName
+  pkgName,
+  {
+    /** whether to also build pkgName */
+    minimalBuilds = true,
+  } = {}
 ) {
-  console.debug(`fixDeps:start: ${pkgName}`);
+  log1(
+    `fixDeps:start:${
+      minimalBuilds ? "minimal-build" : "full-build"
+    }: ${pkgName}`
+  );
 
-  if (!pkgName) throw Error("packageName is required");
-
-  if (!pkgName.includes("/")) pkgName = `${defaultDomain}/${pkgName}`;
-
+  const ws = await findWorkspace();
+  ws.cd();
   const meta = await gpm(pkgName);
 
   // bootstrap if not already
   if (!(await fsStatOrNull(`${meta.path}/node_modules`))) {
-    console.debug("bootstrapping");
+    log1("bootstrapping");
     await execP(
       `yarn lerna bootstrap --scope=${meta.name} --include-dependencies`
     );
@@ -81,30 +111,44 @@ export async function fixDeps(
 
   // bail if there are no workspace deps
   if (!Object.keys(meta.crosslinks).length) {
-    console.debug("No cross-links to fix");
+    log1("No cross-links to fix");
     return;
   }
 
-  const pkgMetasToBundle = Object.values({ meta, ...meta.crosslinks });
-  console.debug("fixDeps:bundler:todos:", Object.keys(pkgMetasToBundle));
+  const pkgMetasToBundle = { [meta.name]: meta, ...meta.crosslinks };
+  log1("fixDeps:bundler:todos:", Object.keys(pkgMetasToBundle));
 
   await Promise.all(
     Object.values(pkgMetasToBundle).map(async (pmtb) => {
       while (Object.keys(pmtb.crosslinks).some((l) => l in pkgMetasToBundle)) {
         await sleep(100);
       }
-      await fixDeps.bundlePackage(pmtb, pmtb.name === meta.name);
+      await fixDeps.apply(pmtb, minimalBuilds ? pmtb.name !== meta.name : true);
       delete pkgMetasToBundle[pmtb.name];
     })
   );
 
-  console.debug("fixDeps:end");
+  log1("fixDeps:end");
 }
-fixDeps.bundlePackage = async (pkgMeta, skipBuild = false) => {
-  console.debug(`${pkgMeta.name}:bundler:start`);
+/**
+ * init:
+ * - re-installs cross-linked packages as if they were
+ *   file dependencies and builds them, bottom-up
+ * - bottom-up: uses a dep tree of cross-linked packages
+ *   and processes them in order of dependencies, so that
+ *   build artifacts are ready for dependents
+ * - resets the package.json and yarn.lock files so that
+ *   lerna+nx are unaware
+ */
+fixDeps.apply = async (pkgMeta, build = true) => {
+  log2(`${pkgMeta.name}:bundler:start`);
+
+  const ws = await findWorkspace();
+  ws.cd();
   const m = pkgMeta;
+
   if (Object.keys(m.crosslinks).length) {
-    console.debug(`${pkgMeta.name}:bundler:rm: `, Object.keys(m.crosslinks));
+    log2(`${pkgMeta.name}:bundler:fixing: `, Object.keys(m.crosslinks));
     await Promise.all(
       Object.keys(m.crosslinks).map((cname) =>
         fs.rm(`${m.path}/node_modules/${cname}`, {
@@ -112,10 +156,6 @@ fixDeps.bundlePackage = async (pkgMeta, skipBuild = false) => {
           force: true,
         })
       )
-    );
-    console.debug(
-      `${pkgMeta.name}:bundler:install: `,
-      Object.keys(m.crosslinks)
     );
     await execP(
       `cd ${m.path}; yarn add ${Object.values(m.crosslinks)
@@ -132,17 +172,160 @@ fixDeps.bundlePackage = async (pkgMeta, skipBuild = false) => {
     ]);
   }
 
-  if (!skipBuild) {
+  if (build) {
     // now build it with nx
     await execP(`nx build ${m.name}`);
     await execP(`cd ${m.path}; yarn pack`);
   }
-  console.debug(`${pkgMeta.name}:bundler:end`);
+  log2(`${pkgMeta.name}:bundler:end`);
 };
 
-/** gets package metadata (aka gpm) about a monorepo package by package name */
+export async function unfixDeps(packageName) {
+  log1("unfixDeps:start", packageName);
+
+  const ws = await findWorkspace();
+  ws.cd();
+
+  const meta = await gpm(packageName);
+
+  // bail if there are no workspace deps
+  if (!Object.keys(meta.crosslinks).length) {
+    log2("No cross-links to fix");
+    return;
+  }
+
+  const pkgMetasToUnfix = { [meta.name]: meta, ...meta.crosslinks };
+  log1("unfixDeps:bundler:todos:", Object.keys(pkgMetasToUnfix));
+
+  await Promise.all(
+    Object.values(pkgMetasToUnfix).map((pmtu) => {
+      log2(`rm ${pmtu.path}/node_modules`);
+      return fs.rm(`${pmtu.path}/node_modules`, {
+        recursive: true,
+        force: true,
+      });
+    })
+  );
+
+  await execP(
+    `yarn lerna bootstrap --scope=${meta.json.name} --include-dependencies`
+  );
+
+  log2("unfixDeps:end", packageName);
+}
+
+/**
+ * syncs the dist folders of all workspace deps in the packagePath
+ */
+export async function rsyncDists(pkgName, watch = false) {
+  log1("resyncDists:start", pkgName, watch);
+
+  const ws = await findWorkspace();
+  ws.cd();
+
+  const meta = await gpm(pkgName);
+
+  const wsDepPath = `${meta.path}/node_modules/${meta.domain}`;
+
+  // bail if there are no workspace deps
+  if (!(await fsStatOrNull(wsDepPath))) {
+    log1("No ws packages to sync");
+    return;
+  }
+
+  async function doSync() {
+    const delta = await Promise.all(
+      meta.crosslinks.map(async (crosslink) =>
+        execP(
+          `rsync -av --delete packages/${crosslink}/dist/ ` +
+            `${wsDepPath}/${crosslink}/dist`
+        ).then((r) =>
+          (r.match(/done([\s\S]*?)\n\n/)?.[1] ?? "")
+            .split("\n")
+            .map((l) => l.trim())
+            .filter(Boolean)
+            .forEach((l) => console.log(`${crosslink}: ${l} upserted`))
+        )
+      )
+    );
+    return delta;
+  }
+
+  doSync();
+
+  if (watch) {
+    const watcher = chokidar.watch([], {
+      ignored: /node_modules/,
+      persistent: true,
+    });
+    watcher.on("change", () => doSync());
+    for (const l of wsDeps) {
+      const distPath = `packages/${l}/dist`;
+      log1(`watching dep: ${ws.domain}/${l}/dist`);
+      watcher.add(distPath);
+    }
+    return () => {
+      watcher.close().then(() => log1("resyncDists:end"));
+    };
+  } else log1("resyncDists:end");
+}
+
+/**
+ * find workspace metadata by looking for the nearest yarn.lock file, reading the
+ * corresponding package.json, and verifying it has a workspaces field
+ */
+export async function findWorkspace() {
+  if (findWorkspace.last) return findWorkspace.last;
+  let dir = process.cwd();
+  let packageJsonRaw = "";
+  let packageJson = {};
+  while (dir !== "/") {
+    if (await fsStatOrNull(`${dir}/yarn.lock`)) {
+      packageJsonRaw = await fs.readFile(`${dir}/package.json`, "utf-8");
+      packageJson = JSON.parse(packageJsonRaw);
+      if (packageJson.workspaces) break;
+    }
+    dir = pathNode.dirname(dir);
+  }
+  if (dir === "/") throw Error("No workspace root found");
+
+  const wsPackage = packageJson.workspaces?.[0];
+  if (!wsPackage) throw Error("No workspace packages");
+
+  const lock = await fs.readFile(`${dir}/yarn.lock`, "utf-8");
+
+  const ws = {
+    cd: () => process.chdir(ws.dir),
+    dir,
+    lockReset: () => fs.writeFile(`${dir}/yarn.lock`, lock),
+    json: packageJson,
+  };
+  findWorkspace.last = ws;
+  log2("ws: " + dir);
+  return ws;
+}
+findWorkspace.last = null;
+
+/**
+ * gets package metadata (aka gpm) about a monorepo package by package name
+ * and builds a cross-link dependency tree of package metadatas
+ *
+ * - heuristically locates the package folder by name
+ *   1. Loops through folders declared in the workspace's package.json
+ *      workspaces field, sorted by best guess
+ *   2. Reads package.json files in each folder until it finds a match
+ *      on the name field
+ * - Discovers direct cross-linked packages from package.json:dependencies
+ *   by looking for packages with versions of "*" or "workspace:*"
+ * - Builds out a crosslinks dictionary of all cross-linked packages, including
+ *   nested cross-linked packages.
+ *   - key: package name, value: gpm(packageName)
+ * - Heavy caching for speed
+ */
 async function gpm(pkgName) {
-  console.debug("gpm:start", pkgName);
+  if (!pkgName) throw Error("packageName is required");
+  if (!pkgName.includes("/")) pkgName = `${defaultDomain}/${pkgName}`;
+  log2("gpm:start", pkgName);
   let cached = gpm.cache[pkgName];
   if (cached?.loading) {
     await cached?.loading;
@@ -153,8 +336,9 @@ async function gpm(pkgName) {
   gpm.cache[pkgName] = { loading: true };
 
   const ws = await findWorkspace();
+  ws.cd();
 
-  console.debug("try workspaces which have the name in the path");
+  log4("try workspaces which have the name in the path");
   let match = (
     await Promise.all(
       ws.json.workspaces
@@ -165,7 +349,7 @@ async function gpm(pkgName) {
     )
   ).find(Boolean);
   if (!match) {
-    console.debug("else try the rest");
+    log4("else try the rest");
     match = (
       await Promise.all(
         ws.json.workspaces
@@ -183,6 +367,7 @@ async function gpm(pkgName) {
   if (!afterDomain) throw Error("Package name must have a domain");
 
   const { json, path } = match;
+  log4("match", path);
 
   const crosslinksDirect = {};
   await Promise.all(
@@ -192,8 +377,7 @@ async function gpm(pkgName) {
           name.startsWith(domain) &&
           (version === "*" || version === "workspace:*")
       )
-      .map(async ([jsonName]) => {
-        const name = jsonName.split("/")[1];
+      .map(async ([name]) => {
         crosslinksDirect[name] = await gpm(name);
       })
   );
@@ -221,22 +405,18 @@ async function gpm(pkgName) {
     jsonReset: () =>
       fs.writeFile(
         `${ws.dir}/${path}/package.json`,
-        gpm.packageJsonCache[pathToPackage]?.raw ??
+        gpm.packageJsonCache[path]?.raw ??
           throwError(`missing package.json cache for ${path}`)
       ),
     /** loading indicator for the cache */
     loading: false,
-    /** dirname of the package path */
-    dirname,
     /** name = json.name */
     name: json.name,
     /** path to the package rel to ws */
     path,
-    /** raw contents of package.json as text */
-    raw,
   };
   gpm.cache[pkgName] = res;
-  console.debug("gpm:end", pkgName);
+  log4("gpm:end", res);
   return res;
 }
 gpm.cache = {};
@@ -245,6 +425,8 @@ gpm.getPackageJson = async (pathToPackage) => {
   let cached = gpm.packageJsonCache[pathToPackage];
   if (!cached) {
     try {
+      const ws = await findWorkspace();
+      ws.cd();
       const raw = await fs.readFile(`${pathToPackage}/package.json`, "utf-8");
       const json = JSON.parse(raw);
       gpm.packageJsonCache[pathToPackage] = { json, raw };
@@ -257,21 +439,25 @@ gpm.getPackageJson = async (pathToPackage) => {
 gpm.packageJsonCache = {};
 /** compare the pkgName with the name in pkgPath/package.json  */
 gpm.findPkgByName = async (pkgName, wsGlob) => {
-  console.debug("findPkgByName", pkgName, wsGlob);
+  log4("findPkgByName", pkgName, wsGlob);
+
+  const ws = await findWorkspace();
+  ws.cd();
+
   /** Parsed json */
   let json = "";
   /** Path to the package */
   let path = "";
 
   if (wsGlob.endsWith("*")) {
-    const pkgsDir = path.dirname(wsGlob);
-    // if a wildcard path includes name, try that one first
+    const pkgsDir = pathNode.dirname(wsGlob);
+    log4("if a wildcard path includes name, try that one first");
     path = `${pkgsDir}/${pkgName}`;
     json = await getPackageJson(path);
     if (json?.name === pkgName) {
       return { json, path: path };
     }
-    // else loop all folders in the wildcard path
+    log4("else loop all folders in the wildcard path");
     for (const pkgDir2 of await fs.readdir(pkgsDir)) {
       path = `${pkgsDir}/${pkgDir2}`;
       json = await getPackageJson(path);
@@ -280,142 +466,46 @@ gpm.findPkgByName = async (pkgName, wsGlob) => {
       }
     }
   } else {
-    // else is a path to a package. Try it out
+    log4("else is a path to a package. Try it out");
     path = wsGlob;
     json = await gpm.getPackageJson(path);
-    console.log("json", json, pkgName, path);
     if (json?.name === pkgName) {
       return { json, path };
     }
   }
+  log4("findPkgByName", pkgName, wsGlob);
   return null;
 };
-
-export async function unfixDeps(packageName) {
-  console.debug("unfixDeps-start");
-
-  packageName || throwError("packageName is required");
-
-  const ws = await findWorkspace();
-  ws.cd();
-
-  const meta = await gpm(packageName);
-
-  await execP(
-    `yarn lerna exec --scope=${meta.json.name} --include-dependencies -- rm -rf node_modules/${ws.domain}`
-  );
-
-  await execP(
-    `yarn lerna bootstrap --scope=${meta.json.name} --include-dependencies`
-  );
-
-  console.debug("unfixDeps-end");
-}
-
-// syncs the dist folders of all workspace deps in the packagePath
-export async function rsyncDists(packageName, watch = false) {
-  console.debug("resyncDists-start", packageName);
-
-  packageName || throwError("packageName is required");
-
-  const ws = await findWorkspace();
-  ws.cd();
-
-  const meta = await gpm(packageName);
-
-  const wsDepPath = `${meta.path}/node_modules/${meta.domain}`;
-
-  // bail if there are no workspace deps
-  if (!(await fsStatOrNull(wsDepPath))) {
-    console.debug("No ws packages to sync");
-    return;
-  }
-
-  async function doSync() {
-    const delta = await Promise.all(
-      meta.crosslinks.map(async (crosslink) =>
-        execP(
-          `rsync -av --delete packages/${crosslink}/dist/ ` +
-            `${wsDepPath}/${crosslink}/dist`
-        ).then((r) =>
-          (r.match(/done([\s\S]*?)\n\n/)?.[1] ?? "")
-            .split("\n")
-            .map((l) => l.trim())
-            .filter(Boolean)
-            .forEach((l) => console.log(`${crosslink}: ${l} upserted`))
-        )
-      )
-    );
-    return delta;
-  }
-
-  doSync();
-
-  if (watch) {
-    const watcher = chokidar.watch([], {
-      // ignored: /node_modules/,
-      persistent: true,
-    });
-    watcher.on("change", () => doSync());
-    for (const l of wsDeps) {
-      const distPath = `packages/${l}/dist`;
-      console.log(`watching dep: ${ws.domain}/${l}/dist`);
-      watcher.add(distPath);
-    }
-    return () => {
-      watcher.close().then(() => console.log("watching ended"));
-      console.debug("resyncDists-end");
-    };
-  }
-}
-
-// find workspace root dir by looking for the nearest yarn.lock file and checking if it has a workspaces field
-export async function findWorkspace() {
-  if (findWorkspace.last) return findWorkspace.last;
-  let dir = process.cwd();
-  let packageJsonRaw = "";
-  let packageJson = {};
-  while (dir !== "/") {
-    if (await fsStatOrNull(`${dir}/yarn.lock`)) {
-      packageJsonRaw = await fs.readFile(`${dir}/package.json`, "utf-8");
-      packageJson = JSON.parse(packageJsonRaw);
-      if (packageJson.workspaces) break;
-    }
-    dir = path.dirname(dir);
-  }
-  if (dir === "/") throwError("No workspace root found");
-
-  const wsPackage = packageJson.workspaces?.[0];
-  if (!wsPackage) throwError("No workspace packages");
-
-  const lock = await fs.readFile(`${dir}/yarn.lock`, "utf-8");
-
-  const ws = {
-    cd: () => process.chdir(ws.dir),
-    dir,
-    lockReset: () => fs.writeFile(`${dir}/yarn.lock`, lock),
-    json: packageJson,
-  };
-  findWorkspace.last = ws;
-  console.debug("ws: " + dir);
-  return ws;
-}
-findWorkspace.last = null;
 
 async function fsStatOrNull(path) {
   return fs.stat(path).catch(() => null);
 }
 
 async function execP(...execArgs) {
-  console.debug("execP-start", ...execArgs);
+  log2("execP:start", ...execArgs);
   const { stdout } = await util.promisify(exec)(...execArgs);
-  console.debug("execP-end", stdout + "\nENDSTDOUT");
+  log3("\nexecP:STDOUT\n", stdout + "\nENDSTDOUT");
+  log3("execP:end");
   return stdout;
 }
 
-function handleDebugEnvVar() {
-  if (process.env.DEBUG !== "1") console.debug = () => {};
-}
+const logLevel = parseInt(process.env.LOG || "1");
+const logn = (n) =>
+  logLevel >= n
+    ? (...args) => {
+        if (logLevel <= 1) console.log(...args);
+        else
+          console.log(
+            // print a human timestamp with ms
+            new Date().toISOString().slice(11, -2),
+            ...args
+          );
+      }
+    : () => {};
+const log1 = logn(1);
+const log2 = logn(2);
+const log3 = logn(3);
+const log4 = logn(4);
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
@@ -429,6 +519,5 @@ function throwError(message, ...extra) {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  handleDebugEnvVar();
   main(...process.argv.slice(2));
 }
