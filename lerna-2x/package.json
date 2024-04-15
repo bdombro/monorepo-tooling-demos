@@ -4,8 +4,8 @@
   "license": "ISC",
   "scripts": {
     "bootstrap": "lerna bootstrap",
-    "bootstrap:with-up": "lerna bootstrap --scope=@mydomain/lib2 --include-filtered-dependencies",
-    "bootstrap:with-down": "lerna bootstrap --scope=@mydomain/lib2 --include-filtered-dependents",
+    "bootstrap:with-up": "lerna bootstrap --scope=@app/lib2 --include-filtered-dependencies",
+    "bootstrap:with-down": "lerna bootstrap --scope=@app/lib2 --include-filtered-dependents",
     "build": "lerna run build --stream",
     "build:scoped": "lerna run build --scope=app --include-filtered-dependencies --include-filtered-dependents --stream",
     "build:changed": "lerna run build --since --sort",

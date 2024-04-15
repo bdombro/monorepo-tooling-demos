@@ -1,6 +1,6 @@
 import React from "react";
 import "./App.css";
-import { lib2Var } from "@mydomain/lib2";
+import { lib2Var } from "@app/lib2";
 
 function App() {
   return (

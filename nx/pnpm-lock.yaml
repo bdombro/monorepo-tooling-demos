@@ -17,7 +17,7 @@ importers:
 
   packages/app:
     dependencies:
-      '@mydomain/lib2':
+      '@app/lib2':
         specifier: '*'
         version: link:../lib2
       '@testing-library/jest-dom':
@@ -65,7 +65,7 @@ importers:
 
   packages/lib2:
     dependencies:
-      '@mydomain/lib':
+      '@app/lib':
         specifier: '*'
         version: link:../lib
     devDependencies:

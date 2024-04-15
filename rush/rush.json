@@ -443,19 +443,19 @@
     // }
     
     {
-      "packageName": "@mydomain/lib",
+      "packageName": "@app/lib",
       "projectFolder": "packages/lib",
       "reviewCategory": "tools",
       "tags": [ "tools" ]
     },
     {
-      "packageName": "@mydomain/lib2",
+      "packageName": "@app/lib2",
       "projectFolder": "packages/lib2",
       "reviewCategory": "tools",
       "tags": [ "tools" ]
     },
     {
-      "packageName": "@mydomain/app",
+      "packageName": "@app/app",
       "projectFolder": "packages/app",
       "reviewCategory": "tools",
       "tags": [ "tools" ]

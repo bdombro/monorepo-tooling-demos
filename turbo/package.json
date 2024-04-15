@@ -3,11 +3,11 @@
   "private": true,
   "scripts": {
     "bootstrap": "pnpm install",
-    "bootstrap:with-up:": "pnpm --filter '@mydomain/app...' install"
+    "bootstrap:with-up:": "pnpm --filter '@app/app...' install"
   },
   "example-commands": {
     "build": "turbo build",
-    "build:scoped": "turbo build --filter='@mydomain/app...'",
+    "build:scoped": "turbo build --filter='@app/app...'",
     "build:changed": "turbo build --filter='[<since>]'",
     "clean": "turbo clean",
     "exec": "pnpm --filter '*' exec pwd",

@@ -19,14 +19,14 @@
 8 silly execute attempt
 9 info Bootstrapping 3 packages
 10 info lifecycle preinstall
-11 silly runScript preinstall @mydomain/lib
-12 silly @mydomain/lib
-13 silly runScript preinstall @mydomain/lib2
-14 silly @mydomain/lib2
+11 silly runScript preinstall @app/lib
+12 silly @app/lib
+13 silly runScript preinstall @app/lib2
+14 silly @app/lib2
 15 silly runScript preinstall app
 16 silly app
-17 silly hasMatchingDependency app @mydomain/lib2
-18 silly hasMatchingDependency @mydomain/lib2 @mydomain/lib
+17 silly hasMatchingDependency app @app/lib2
+18 silly hasMatchingDependency @app/lib2 @app/lib
 19 silly hasDependencyInstalled app @testing-library/jest-dom
 20 silly dependencyIsSatisfied [
 20 silly dependencyIsSatisfied   '@testing-library/jest-dom',
@@ -104,14 +104,14 @@
 50 silly dependencyIsSatisfied   '/Users/brian.dombrowski/Dev/Javascript/monorepo-tooling/monorepo-tooling-demos/lerna-2x/packages/app/node_modules'
 50 silly dependencyIsSatisfied ]
 51 verbose dependencyIsSatisfied typescript false
-52 silly hasDependencyInstalled @mydomain/lib typescript
+52 silly hasDependencyInstalled @app/lib typescript
 53 silly dependencyIsSatisfied [
 53 silly dependencyIsSatisfied   'typescript',
 53 silly dependencyIsSatisfied   '^5.3.3',
 53 silly dependencyIsSatisfied   '/Users/brian.dombrowski/Dev/Javascript/monorepo-tooling/monorepo-tooling-demos/lerna-2x/packages/lib/node_modules'
 53 silly dependencyIsSatisfied ]
 54 verbose dependencyIsSatisfied typescript false
-55 silly hasDependencyInstalled @mydomain/lib2 typescript
+55 silly hasDependencyInstalled @app/lib2 typescript
 56 silly dependencyIsSatisfied [
 56 silly dependencyIsSatisfied   'typescript',
 56 silly dependencyIsSatisfied   '^5.3.3',
@@ -177,13 +177,13 @@
 62 silly leaf dependencies       "isSatisfied": false
 62 silly leaf dependencies     }
 62 silly leaf dependencies   ],
-62 silly leaf dependencies   "@mydomain/lib": [
+62 silly leaf dependencies   "@app/lib": [
 62 silly leaf dependencies     {
 62 silly leaf dependencies       "dependency": "typescript@^5.3.3",
 62 silly leaf dependencies       "isSatisfied": false
 62 silly leaf dependencies     }
 62 silly leaf dependencies   ],
-62 silly leaf dependencies   "@mydomain/lib2": [
+62 silly leaf dependencies   "@app/lib2": [
 62 silly leaf dependencies     {
 62 silly leaf dependencies       "dependency": "typescript@^5.3.3",
 62 silly leaf dependencies       "isSatisfied": false

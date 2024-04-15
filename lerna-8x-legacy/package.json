@@ -9,7 +9,7 @@
   "scripts": {
     "bootstrap": "lerna bootstrap",
     "bootstrap:with-up": "lerna bootstrap --scope=app --include-dependencies",
-    "bootstrap:with-down": "lerna bootstrap --scope=@mydomain/lib2 --include-dependents",
+    "bootstrap:with-down": "lerna bootstrap --scope=@app/lib2 --include-dependents",
     "build": "nx run-many -t build",
     "build:scoped": "nx build app",
     "build:changed": "nx affected -t build",
@@ -20,5 +20,8 @@
     "test": "nx run-many -t  test",
     "test:scoped": "nx test app",
     "watch": "nx run-many -t watch"
+  },
+  "dependencies": {
+    "chokidar": "^3.6.0"
   }
 }

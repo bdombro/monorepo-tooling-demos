@@ -4,9 +4,9 @@
   "license": "ISC",
   "scripts": {
     "bootstrap": "rush update",
-    "bootstrap:with-up:": "rush install -t '@mydomain/app'",
+    "bootstrap:with-up:": "rush install -t '@app/app'",
     "build": "rush build",
-    "build:scoped": "rush build -t '@mydomain/app'",
+    "build:scoped": "rush build -t '@app/app'",
     "build:changed": "pnpm --filter '[<since>]' build",
     "clean": "pnpm --filter '*' clean",
     "exec": "pnpm --filter '*' exec pwd",

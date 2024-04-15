@@ -1,5 +1,5 @@
 import React from "react";
-import { lib2Var } from "@mydomain/lib2";
+import { lib2Var } from "@app/lib2";
 import "./App.css";
 
 function App() {

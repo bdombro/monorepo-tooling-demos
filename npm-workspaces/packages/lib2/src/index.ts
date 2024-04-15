@@ -1,2 +1,2 @@
-import { libVar } from "@mydomain/lib";
+import { libVar } from "@app/lib";
 export const lib2Var = libVar + "2";
