@@ -9,7 +9,16 @@
     "watch": "tsc --watch"
   },
   "license": "ISC",
+  "dependencies": {
+    "minimatch": "9.0.3"
+  },
   "devDependencies": {
+    "@slimr/util": "^2.0.0",
+    "lodash": "4.10.0",
     "typescript": "^5.3.3"
+  },
+  "peerDependencies": {
+    "@slimr/util": "^2.0.0",
+    "lodash": "4.10.0"
   }
 }
