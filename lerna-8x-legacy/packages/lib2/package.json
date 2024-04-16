@@ -3,16 +3,15 @@
   "version": "1.0.0",
   "main": "dist/index.js",
   "scripts": {
-    "build": "echo yarn v$(yarn -v) && tsc",
+    "build": "echo yarn v$(yarn -v) && lib-cli && tsc",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
     "watch": "tsc --watch"
   },
   "license": "ISC",
-  "dependencies": {
-    "@app/lib": "*"
-  },
   "devDependencies": {
+    "@app/lib": "*",
+    "@slimr/util": "^2.0.0",
     "typescript": "^5.3.3"
   }
 }
