@@ -22,7 +22,6 @@ import pathNode from "path";
 import util from "util";
 import chokidar from "chokidar";
 
-const logLevel = parseInt(process.env.LOG || "1");
 const domainDefault = process.env.DOMAIN_DEFAULT || "@app";
 
 async function main(
@@ -329,78 +328,88 @@ export async function rsyncDists(pkgName, watch = false) {
  * until it finds either a workspaces field or a lerna.json file
  */
 export async function findWorkspace() {
-  while (findWorkspace.last === "loading") {
+  const ws = findWorkspace.cache;
+  while (ws.state === 1) {
     log4("findWorkspace:loading");
     await sleep(300);
   }
-  if (findWorkspace.last) {
+  if (ws.state === 2) {
     // log4("findWorkspace:cache-hit");
-    return findWorkspace.last;
+    return ws;
   }
-  findWorkspace.last = "loading";
+
+  ws.state = 1;
 
   log1("findWorkspace:init");
-  let wsPath = process.cwd();
-  let packageJsonF = null;
-  let lernaJsonF = null;
-  let workspaces = [];
-  stepUpDir: while (wsPath !== "/") {
-    log3("findWorkspace:try:", wsPath);
-    packageJsonF = await getPkgJsonFile(`${wsPath}/package.json`, true);
-    if (packageJsonF?.workspaces?.[0]) {
-      workspaces = workspaces.concat(packageJsonF.workspaces);
+
+  ws.path = process.cwd();
+  stepUpDir: while (ws.path !== "/") {
+    log3("findWorkspace:try:", ws.path);
+    ws.pkgJsonF = await getPkgJsonFile(`${ws.path}/package.json`, true);
+    if (ws.pkgJsonF?.workspaces?.[0]) {
+      ws.workspaces = ws.workspaces.concat(ws.pkgJsonF.workspaces);
     }
-    if (packageJsonF) {
-      lernaJsonF = await getJsonFile(`${wsPath}/lerna.json`, true);
-      if (lernaJsonF?.json?.packages?.[0]) {
-        workspaces = workspaces.concat(lernaJsonF.json.packages);
+    if (ws.pkgJsonF) {
+      ws.lernaJsonF = await getJsonFile(`${ws.path}/lerna.json`, true);
+      if (ws.lernaJsonF?.json?.packages?.[0]) {
+        ws.workspaces = ws.workspaces.concat(ws.lernaJsonF.json.packages);
       }
     }
-    if (workspaces.length) break stepUpDir;
-    wsPath = pathNode.dirname(wsPath);
+    if (ws.workspaces.length) break stepUpDir;
+    ws.path = pathNode.dirname(ws.path);
   }
-  if (!workspaces.length) throw Error("No workspace root found");
+  if (!ws.workspaces.length) throw Error("No workspace root found");
 
-  workspaces = [...new Set(workspaces)]; // de-dupe
+  log1("findWorkspace:match:" + ws.path);
 
-  const lockFile = await findLockFile(wsPath, true);
-  if (!lockFile.name) {
+  ws.cd = () => {
+    log4("findWorkspace:cd:" + ws.path);
+    process.chdir(ws.path);
+  };
+
+  ws.workspaces = [...new Set(ws.workspaces)]; // de-dupe
+
+  ws.lockFile = await findLockFile(ws.path, true);
+  if (!ws.lockFile.name) {
     throw Error("Workspace missing lock file");
   }
-  if (lockFile.name !== "yarn.lock") {
+  ws.reset = () => ws.lockFile.reset();
+  ws.yarnVersion = ws.lockFile.yarnVersion;
+  if (ws.lockFile.name !== "yarn.lock") {
     throw Error(
-      `${lctx}:yarn-check:error:${pkgJsonF.name} has unsupported package manager with lockFile=${lockFile.name}`
+      `${lctx}:yarn-check:error:${pkgJsonF.name} has unsupported package manager with lockFile=${ws.lockFile.name}`
     );
   }
-  if (lockFile.yarnVersion === 1) {
-    yarnBust.init(wsPath);
+  if (ws.yarnVersion === 1) {
+    yarnBust.init(ws.path);
   }
 
-  const ws = {
-    /**
-     * changes the cwd to the workspace root.
-     */
-    cd: () => {
-      log4("findWorkspace:cd:" + wsPath);
-      process.chdir(wsPath);
-    },
-    /**
-     * the full path to the ws. tip: prefer using ws.cd() and relative paths instead
-     * so logs are cleaner
-     */
-    path: wsPath,
-    lockFile,
-    /** resets the lock to the original state when first read */
-    reset: () => lockFile.reset(),
-    /** An array of workspaces = [...packageJson.workspaces, ...lernaJson.packages] */
-    workspaces,
-    yarnVersion: lockFile.yarnVersion,
-  };
-  findWorkspace.last = ws;
-  log1("findWorkspace:" + wsPath);
+  ws.state = 2;
+
+  log1("findWorkspace:end");
   return ws;
 }
-findWorkspace.last = null;
+findWorkspace.cache = {
+  /**
+   * changes the cwd to the workspace root.
+   */
+  cd: () => {},
+  /**
+   * the full path to the ws. tip: prefer using ws.cd() and relative paths instead
+   * so logs are cleaner
+   */
+  path: "",
+  pkgJsonF: {},
+  lernaJsonF: {},
+  lockFile: {},
+  /** resets the lock to the original state when first read */
+  reset: async () => {},
+  /** 0:unitiated, 1: loading, 2: ready */
+  state: 0,
+  /** An array of workspaces = [...packageJson.workspaces, ...lernaJson.packages] */
+  workspaces: [],
+  yarnVersion: 1,
+};
 
 /**
  * gets package metadata (aka getPkg) about a monorepo package by package name
@@ -421,20 +430,53 @@ findWorkspace.last = null;
 async function getPkg(pkgName) {
   if (!pkgName) throw Error("packageName is required");
   if (!pkgName.includes("/")) pkgName = `${domainDefault}/${pkgName}`;
+
   const lctx = `getPkg:${pkgName}`;
   log2(`${lctx}:start`);
 
   let cached = getPkg.cache[pkgName];
-  while (cached?.loading) {
+  while (cached?.state === 1) {
     await sleep(100);
     cached = getPkg.cache[pkgName];
   }
-  if (cached) {
+  if (cached?.state === 2) {
     log2(`${lctx}:cache-hit`);
     return cached;
   }
 
-  getPkg.cache[pkgName] = { loading: true };
+  const pkg = (getPkg.cache[pkgName] = {
+    /** dictionary of direct crosslinked packages */
+    crosslinksDirect: {},
+    /** dictionary of crosslinked packages, including nested */
+    crosslinks: {},
+    /** dictionary of dependencies from package.json */
+    dependencies: {},
+    /** dictionary of devDependencies from package.json */
+    devDependencies: {},
+    domain: "",
+    lockFile: {},
+    /** name from package.json.name */
+    name: pkgName,
+    /** name from package.json.name without domain */
+    nameNoDomain: "",
+    pack: async () => {},
+    /** path to the package */
+    path: "",
+    /** full path to the package */
+    pathAbs: "",
+    pkgJsonF: undefined,
+    /** resets package to original state so lerna is unaware of changes */
+    reset: async () => {},
+    /**
+     * removes crosslinks from the package.json file (and no other side-effects)
+     * this is done ahead of adding ../{pkgName}/package.tgz to the package.json
+     */
+    rmCrosslinks: async () => {},
+    state: 1,
+    /** workspaces from package.json.workspaces */
+    workspaces: [],
+    yarnVersion: 1,
+  });
 
   const ws = await findWorkspace();
   ws.cd();
@@ -442,51 +484,60 @@ async function getPkg(pkgName) {
   // split the workspaces into 3 groups: with the package name, with wildcard, and the rest
   // based on best guess
   const wsGlobsWithPkgName = ws.workspaces.filter(
-    (wsGlob) => pathNode.basename(wsGlob) === pathNode.basename(pkgName)
+    (wsGlob) => pathNode.basename(wsGlob) === pathNode.basename(pkg.name)
   );
   const wsGlobWilds = ws.workspaces.filter((wsGlob) => wsGlob.endsWith("*"));
   const wsGlobsRest = ws.workspaces.filter(
     (wsGlob) => !(wsGlob in wsGlobsWithPkgName) && !(wsGlob in wsGlobWilds)
   );
 
-  let pkgJsonF;
   if (wsGlobsWithPkgName.length) {
     log4(`${lctx}:try-wsGlobsWithPkgName`, wsGlobsWithPkgName);
-    pkgJsonF = (
+    pkg.pkgJsonF = (
       await Promise.all(
-        wsGlobsWithPkgName.map((wsGlob) => findPkgByName(pkgName, wsGlob))
+        wsGlobsWithPkgName.map((wsGlob) => findPkgByName(pkg.name, wsGlob))
       )
     ).find((res) => res.name);
   }
-  if (!pkgJsonF && wsGlobWilds.length) {
+  if (!pkg.pkgJsonF && wsGlobWilds.length) {
     log4(`${lctx}:try-wsGlobWilds`, wsGlobWilds);
-    pkgJsonF = (
-      await Promise.all(wsGlobWilds.map((p) => findPkgByName(pkgName, p)))
+    pkg.pkgJsonF = (
+      await Promise.all(wsGlobWilds.map((p) => findPkgByName(pkg.name, p)))
     ).find((res) => res.name);
   }
-  if (!pkgJsonF && wsGlobsRest.length) {
+  if (!pkg.pkgJsonF && wsGlobsRest.length) {
     log4(`${lctx}:try-wsGlobsRest`, wsGlobsRest);
-    pkgJsonF = (
-      await Promise.all(wsGlobsRest.map((p) => findPkgByName(pkgName, p)))
+    pkg.pkgJsonF = (
+      await Promise.all(wsGlobsRest.map((p) => findPkgByName(pkg.name, p)))
     ).find((res) => res.name);
   }
-  if (!pkgJsonF) throw Error(`${lctx}:no-match-found`);
+  if (!pkg.pkgJsonF) throw Error(`${lctx}:no-match-found`);
 
-  log4(`${lctx}:match on ${pkgJsonF.path}`);
+  Object.assign(pkg, {
+    domain: pkg.pkgJsonF.domain,
+    json: pkg.pkgJsonF.json,
+    nameNoDomain: pkg.pkgJsonF.nameNoDomain,
+    dependencies: pkg.pkgJsonF.dependencies,
+    devDependencies: pkg.pkgJsonF.devDependencies,
+    path: pathNode.dirname(pkg.pkgJsonF.path),
+    pathAbs: pathNode.dirname(pkg.pkgJsonF.pathAbs),
+    workspaces: pkg.pkgJsonF.workspaces,
+  });
 
-  const crosslinksDirect = {};
+  log4(`${lctx}:match on ${pkg.path}`);
+
   await Promise.all(
-    Object.entries(pkgJsonF.dependencies || {})
+    Object.entries(pkg.dependencies || {})
       .filter(
         ([name, version]) =>
-          name.startsWith(pkgJsonF.domain) &&
+          name.startsWith(pkg.domain) &&
           (version === "*" || version === "workspace:*")
       )
       .map(async ([name]) => {
-        crosslinksDirect[name] = await getPkg(name);
+        pkg.crosslinksDirect[name] = await getPkg(name);
       })
   );
-  log4(`${lctx}:crosslinksDirect`, Object.keys(crosslinksDirect));
+  log4(`${lctx}:crosslinksDirect`, Object.keys(pkg.crosslinksDirect));
 
   function flattenCrosslinks(crosslinks) {
     const flat = { ...crosslinks };
@@ -496,73 +547,53 @@ async function getPkg(pkgName) {
     }
     return flat;
   }
-  const crosslinks = flattenCrosslinks(crosslinksDirect);
-  log4(`${lctx}:crosslinks`, Object.keys(crosslinks));
+  pkg.crosslinks = flattenCrosslinks(pkg.crosslinksDirect);
+  log4(`${lctx}:crosslinks`, Object.keys(pkg.crosslinks));
 
-  const pkgPath = pathNode.dirname(pkgJsonF.path);
-  const pkgPathAbs = pathNode.dirname(pkgJsonF.pathAbs);
-
-  const lockFile = await findLockFile(pkgPath);
-  if (lockFile.name && lockFile.name !== "yarn.lock") {
+  pkg.lockFile = await findLockFile(pkg.path);
+  if (pkg.lockFile.name && pkg.lockFile.name !== "yarn.lock") {
     throw Error(
-      `${lctx}:yarn-check:error:${pkgJsonF.name} has unsupported package manager with lockFile=${lockFile.name}`
+      `${lctx}:yarn-check:error:${pkg.name} has unsupported package manager with lockFile=${lockFile.name}`
     );
   }
-  if (lockFile.yarnVersion === 1) {
-    yarnBust.init(pkgPathAbs);
+  pkg.yarnVersion = pkg.lockFile.yarnVersion;
+  if (pkg.yarnVersion === 1) {
+    yarnBust.init(pkg.pathAbs);
   }
 
-  // TODO: consider if root package has a dep on a cross-linked package
-
-  const res = {
-    ...pkgJsonF,
-    /** dictionary of direct crosslinked packages */
-    crosslinksDirect,
-    /** dictionary of crosslinked packages, including nested */
-    crosslinks,
-    lockFile,
-    pack: async () => {
-      log2(`${lctx}:pack`);
-      await execWs(
-        `cd ${pkgPath} && ` +
-          (lockFile.yarnVersion === 1
-            ? `yarn pack -f package.tgz`
-            : `yarn pack -o package.tgz`)
-      );
-    },
-    /** path to the package */
-    path: pkgPath,
-    /** full path to the package */
-    pathAbs: pkgPathAbs,
-    /** resets package to original state so lerna is unaware of changes */
-    reset: () => Promise.all([pkgJsonF.reset(), lockFile.reset()]),
-    /**
-     * removes crosslinks from the package.json file (and no other side-effects)
-     * this is done ahead of adding ../{pkgName}/package.tgz to the package.json
-     */
-    rmCrosslinks: async () => {
-      ws.cd();
-      const regex = new RegExp(
-        `"${pkgJsonF.domain}/[^:]+: "(workspace:\\*|\\*)",*`,
-        "g"
-      );
-      const matches = pkgJsonF.text.match(regex);
-      if (!matches) {
-        log1(`${lctx}:rmCrosslinks:nothing-to-remove`);
-        return;
-      }
-      const res = pkgJsonF.text.replace(regex, "");
-      log1(`${lctx}:rmCrosslinks:${pkgPath}:`, matches);
-      await fs.writeFile(pkgJsonF.pathAbs, res);
-      backupToTmpDir(pkgJsonF.pathAbs, { text: res });
-    },
-    /** loading indicator for the cache */
-    loading: false,
-    yarnVersion: lockFile.yarnVersion,
+  pkg.pack = async () => {
+    log2(`${lctx}:pack`);
+    await execWs(
+      `cd ${pkg.path} && ` +
+        (pkg.yarnVersion === 1
+          ? `yarn pack -f package.tgz`
+          : `yarn pack -o package.tgz`)
+    );
   };
-  getPkg.cache[pkgName] = res;
+
+  pkg.reset = () => Promise.all([pkg.pkgJsonF.reset(), pkg.lockFile.reset()]);
+
+  pkg.rmCrosslinks = async () => {
+    ws.cd();
+    const regex = new RegExp(
+      `"${pkg.domain}/[^:]+: "(workspace:\\*|\\*)",*`,
+      "g"
+    );
+    const matches = pkg.pkgJsonF.text.match(regex);
+    if (!matches) {
+      log1(`${lctx}:rmCrosslinks:nothing-to-remove`);
+      return;
+    }
+    const res = pkg.pkgJsonF.text.replace(regex, "");
+    log1(`${lctx}:rmCrosslinks:${pkg.pkgJsonF.path}:`, matches);
+    await fs.writeFile(pkg.pkgJsonF.pathAbs, res);
+    backupToTmpDir(pkg.pkgJsonF.pathAbs, { text: res });
+  };
+
+  pkg.state = 2;
+
   log4(`${lctx}:end`);
-  return res;
+  return pkg;
 }
 getPkg.cache = {};
 
@@ -674,7 +705,7 @@ yarnBust.init = async (pkgPath) => {
   // This is one of the few places that we cd out of the workspace root, so we want to cd for as
   // short a time as possible, hence the wsCd function called several times.
   const wsCd = () =>
-    findWorkspace.last?.path && process.chdir(findWorkspace.last.path);
+    findWorkspace.cache?.path && process.chdir(findWorkspace.cache.path);
   return execP("yarn cache dir").then((out) => {
     wsCd();
     yarnBust.cacheDir =
@@ -739,8 +770,7 @@ async function getFile(path, skipCd) {
     const ws = await findWorkspace();
     ws.cd();
   }
-  const cwd = process.cwd() + "/";
-  const pathAbs = path.includes(cwd) ? path : cwd + path;
+  const pathAbs = path.startsWith("/") ? path : `${process.cwd()}/${path}`;
 
   cached = getFile.cache[path] = {
     loading: true,
@@ -824,8 +854,8 @@ async function findLockFile(pkgPath) {
       text: rfRes.text,
       yarnVersion: rfRes.text.includes("yarn lockfile v1") ? 1 : 2,
     };
-  } else if (findWorkspace.last?.lockFile) {
-    cached = findLockFile.cache[pkgPath] = findWorkspace.last?.lockFile;
+  } else if (findWorkspace.cache?.lockFile) {
+    cached = findLockFile.cache[pkgPath] = findWorkspace.cache?.lockFile;
   } else {
     cached = findLockFile.cache[pkgPath] = {
       ...cached,
@@ -839,39 +869,39 @@ findLockFile.cache = {};
 /** get package json from cache or file, or null */
 async function getJsonFile(path, skipCd) {
   let cached = getJsonFile.cache[path];
-  while (cached?.loading) {
+  while (cached?.state === 1) {
     await sleep(100);
     cached = getJsonFile.cache[path];
   }
-  if (cached) {
+  if (cached?.state === 2) {
     log4(`getJsonFile:cache-hit:${path}`);
     return cached;
   }
 
-  cached = getJsonFile.cache[path] = {
-    loading: true,
+  const jsonF = (getJsonFile.cache[path] = {
     json: null,
     path,
     pathAbs: null,
     reset: async () => {},
+    state: 1,
     text: null,
-  };
+  });
 
   const rfRes = await getFile(path, skipCd);
   if (rfRes.text) {
-    cached = getJsonFile.cache[path] = {
+    Object.assign(jsonF, {
       ...cached,
       ...rfRes,
-      loading: false,
+      state: 2,
       json: JSON.parse(rfRes.text),
-    };
+    });
   } else {
-    cached = getJsonFile.cache[path] = {
+    Object.assign(jsonF, {
       ...cached,
-      loading: false,
-    };
+      state: 2,
+    });
   }
-  return cached;
+  return jsonF;
 }
 getJsonFile.cache = {};
 
@@ -935,7 +965,7 @@ async function backupToTmpDir(path, options) {
   let backupPath =
     `${tmpDir}/` +
     path
-      .replace(findWorkspace.last?.path ?? "", "")
+      .replace(findWorkspace.cache?.path ?? "", "")
       .slice(1)
       .replace(/\//g, ".") +
     "-" +
@@ -976,6 +1006,7 @@ getTmpDir.purge = async () => {
   getTmpDir.last = null;
 };
 
+const logLevel = parseInt(process.env.LOG || "1");
 function logn(n) {
   getTmpDir();
   return (...args) => {
