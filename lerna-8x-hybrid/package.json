@@ -10,7 +10,8 @@
   "workspaces": [
     "packages/lib",
     "packages/lib2",
-    "packages/lib3"
+    "packages/lib3",
+    "packages/lib4"
   ],
   "scripts": {
     "bootstrap": "lerna bootstrap",
