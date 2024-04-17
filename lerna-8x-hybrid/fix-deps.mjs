@@ -103,22 +103,22 @@ export async function fixDeps(
   ws.cd();
 
   // bootstrap if self or any cross-links not already
-  const needsStrap = [];
-  await Promise.all(
-    Object.values({ [pkg.name]: pkg, ...pkg.crosslinksAll }).map(async (p) => {
-      if (!(await fsStatOrNull(`${p.path}/node_modules`))) {
-        needsStrap.push(p.name);
-      }
-    })
-  );
-  if (needsStrap.length) {
-    log1(`fixdeps:bootstrapping bc`, needsStrap);
-    await execWs(
-      `yarn lerna bootstrap --scope=${pkg.name} --include-dependencies`
-    );
-  } else {
-    log2(`fixdeps:skipping-bootstrap`);
-  }
+  // const needsStrap = [];
+  // await Promise.all(
+  //   Object.values({ [pkg.name]: pkg, ...pkg.crosslinksAll }).map(async (p) => {
+  //     if (!(await fsStatOrNull(`${p.path}/node_modules`))) {
+  //       needsStrap.push(p.name);
+  //     }
+  //   })
+  // );
+  // if (needsStrap.length) {
+  //   log1(`fixdeps:bootstrapping bc`, needsStrap);
+  //   await execWs(
+  //     `yarn lerna bootstrap --scope=${pkg.name} --include-dependencies`
+  //   );
+  // } else {
+  //   log2(`fixdeps:skipping-bootstrap`);
+  // }
 
   // bail if there are no workspace deps
   if (!Object.keys(pkg.crosslinksForDependents).length) {
@@ -129,12 +129,40 @@ export async function fixDeps(
   const pkgsToFix = { [pkg.name]: pkg, ...pkg.crosslinksAll };
   log1("fixDeps:fix-todos:", Object.keys(pkgsToFix));
 
-  await Promise.all(
-    Object.values(pkgsToFix).map(async (ptf) => {
+  log1("fixDeps:packing-and-unCrosslinking");
+  await Promise.all([
+    ...Object.values(pkgsToFix).map(async (ptf) => {
+      await ptf.rmCrosslinks();
+      await ptf.pack();
       await ptf.unCrosslink();
-    })
-  );
+    }),
+    yarnBust(pkg),
+  ]);
 
+  // await Promise.all(
+  //   Object.values(pkgsToFix)
+  //     .filter((ptf) => !ptf.isPkgJsonWsPkg)
+  //     .map(async (ptf) => {
+  //       await Promise.all(
+  //         Object.keys(pkgsToFix).map((name) => {
+  //           log1(`fixDeps:rm ${ptf.path}/node_modules/${name}`);
+  //           return fs.rm(`${ptf.pathAbs}/node_modules/${name}`, {
+  //             recursive: true,
+  //             force: true,
+  //           });
+  //         })
+  //       );
+  //     })
+  // );
+
+  // log1("fixDeps:packing");
+  // await Promise.all(
+  //   Object.values(pkgsToFix).map(async (ptf) => {
+  //     await ptf.pack();
+  //   })
+  // );
+
+  log1("fixDeps:bootstrap");
   await execWs(
     `yarn lerna bootstrap ` +
       Object.keys(pkgsToFix)
@@ -142,147 +170,57 @@ export async function fixDeps(
         .join(" ")
   );
 
+  // await Promise.all(
+  //   Object.values(pkgsToFix)
+  //     .filter((ptf) => !ptf.isPkgJsonWsPkg)
+  //     .map(async (ptf) => {
+  //       await execWs(`cd ${ptf.path} && yarn install`);
+  //     })
+  // );
+
+  // process.exit();
+
+  // await Promise.all(
+  //   Object.values(pkgsToFix)
+  //     .filter((ptf) => !ptf.isPkgJsonWsPkg)
+  //     .filter((ptf) => Object.keys(ptf.crosslinksForDependents).length)
+  //     .map(async (ptf) => {
+  //       await execWs(
+  //         `cd ${ptf.path}; yarn add ${Object.values(ptf.crosslinksForDependents)
+  //           .map(
+  //             (cl) =>
+  //               `${"../".repeat(ptf.path.split("/").length)}${
+  //                 cl.path
+  //               }/package.tgz`
+  //           )
+  //           .join(" ")};`
+  //       );
+  //     })
+  // );
+
+  log1("fixDeps:resetting-packageJsons-and-lockFiles");
   await Promise.all(Object.values(pkgsToFix).map(async (ptf) => ptf.reset()));
 
+  log1("fixDeps:building");
   const buildQueue = { ...pkgsToFix };
   await Promise.all(
     Object.values(pkgsToFix).map(async (ptf) => {
       while (Object.keys(ptf.crosslinksAll).some((l) => l in buildQueue)) {
         await sleep(100);
       }
-      // build it!
       log1(`fixDeps:build:${ptf.name}`);
       await rsyncDists(ptf.name, false);
       const stdout = await execWs(`yarn lerna run build --scope=${ptf.name}`);
       stdout.split("\n").forEach((l) => log2(`fixdeps:build:${ptf.name}:`, l));
-
-      // pack it!
-      // log1(`fixDeps:pack:${ptf.name}`);
-      // await ptf.pack();
-
-      // await fixDeps
-      //   .apply(ptf, buildPkgToo ? true : ptf.name !== pkg.name)
-      //   .catch((e) => {
-      //     log1(`fixDeps:error:on:${ptf.name}`);
-      //     log1("fixDeps:error:", e);
-      //     log1("fixDeps:error:end");
-      //     throw e;
-      //   });
       delete buildQueue[ptf.name];
     })
   );
 
-  // now reset ws and packages
-
-  // const stdout = await execWs(`yarn lerna run build --scope=${pkg.name}`);
-  // stdout.split("\n").forEach((l) => log2(`${lctx}:build:`, l));
-
-  // await Promise.all(
-  //   Object.values(pkgsToFix).map(async (ptf) => {
-  //     await ptf.pack();
-  //   })
-  // );
-
-  // await Promise.all(
-  //   Object.values(pkgsToFix).map(async (ptf) => {
-  //     while (Object.keys(ptf.crosslinksAll).some((l) => l in pkgsToFix)) {
-  //       await sleep(100);
-  //     }
-  //     await fixDeps
-  //       .apply(ptf, buildPkgToo ? true : ptf.name !== pkg.name)
-  //       .catch((e) => {
-  //         log1(`fixDeps:error:on:${ptf.name}`);
-  //         log1("fixDeps:error:", e);
-  //         log1("fixDeps:error:end");
-  //         throw e;
-  //       });
-  //     delete pkgsToFix[ptf.name];
-  //   })
-  // ).catch(async (e) => {
-  //   log1("fixDeps:resetting-world");
-  //   // await getFile.resetAll();
-  //   // await unfixDeps(pkgName);
-  //   throw e;
-  // });
-
   log1(`fixDeps:end:${Date.now() - start}ms`);
 
   // Cleanup tmp dir since success
-  // await getTmpDir.purge();
+  await getTmpDir.purge();
 }
-/**
- * init:
- * - re-installs cross-linked packages as if they were
- *   file dependencies and builds them, bottom-up
- * - bottom-up: uses a dep tree of cross-linked packages
- *   and processes them in order of dependencies, so that
- *   build artifacts are ready for dependents
- * - resets the package.json and lock files so that
- *   lerna+nx are unaware
- */
-fixDeps.apply = async (pkg, build = true) => {
-  const lctx = `fixDeps.apply:${pkg.name}`;
-  log1(lctx);
-  const start = Date.now();
-
-  const ws = await getWorkspace();
-  ws.cd();
-
-  const clNames = Object.keys(pkg.crosslinksForDependents);
-
-  if (clNames.length) {
-    log1(`${lctx}:crosslinks-todo:`, clNames);
-
-    await pkg.rmCrosslinks();
-
-    // shield crosslinks from yarn trying to re-do workspace linking
-    // const unhidePkgJsonWsPkgs = await ws.hidePkgJsonWsPkgs(
-    //   pkg.crosslinksForDependents
-    // );
-
-    // Do fixes: install the cross-linked packages as relative file dependencies so that
-    // they are installed as if they were npm packages
-    log1(`${lctx}:yarn-adds`);
-    await execWs(
-      // note: we use yarn add bc is faster than lerna add
-      `cd ${pkg.path} && ` +
-        ` yarn add ` +
-        `${Object.values(pkg.crosslinksForDependents)
-          .map(
-            (cm) =>
-              `${"../".repeat(pkg.path.split("/").length)}${
-                cm.path
-              }/package.tgz`
-          )
-          .join(" ")};`
-    );
-
-    log1(`${lctx}:cleanup`);
-    await pkg.reset();
-    // await unhidePkgJsonWsPkgs();
-  }
-
-  if (build) {
-    // now build it and pack it for dependents
-
-    /// build it!
-    log1(`${lctx}:build`);
-    const stdout = await execWs(`yarn lerna run build --scope=${pkg.name}`);
-    stdout.split("\n").forEach((l) => log2(`${lctx}:build:`, l));
-
-    // pack it!
-    log1(`${lctx}:pack`);
-    // - remove the cross-linked packages from the package.json to avoid conflicts
-    await pkg.rmCrosslinks();
-    await pkg.pack();
-
-    // reset the state of the package.json and lock file so that lerna+nx are unaware
-    log1(`${lctx}:reset`);
-    await pkg.reset();
-  }
-
-  log2(`${lctx}:end:${Date.now() - start}ms`);
-};
 
 export async function unfixDeps(pkgName) {
   const lctx = `unfixDeps:${pkgName}`;
@@ -325,7 +263,7 @@ export async function unfixDeps(pkgName) {
  */
 export async function rsyncDists(pkgName, watch = false) {
   const lctx = `rsyncDists:${pkgName}`;
-  log1(lctx + watch ? ":with-watch" : "");
+  log1(lctx + (watch ? ":with-watch" : ""));
 
   const ws = await getWorkspace();
   ws.cd();
@@ -376,7 +314,7 @@ export async function rsyncDists(pkgName, watch = false) {
       watcher.close().then(() => log1(`${lctx}:end`));
     };
   }
-  log1(`${lctx}:end`);
+  log2(`${lctx}:end`);
 }
 
 /**
@@ -747,12 +685,12 @@ async function getPkg(pkgName) {
       if (name in depsNext) {
         depsNext[name] = `${"../".repeat(pkg.path.split("/").length)}${
           cl.path
-        }`;
+        }/package.tgz`;
       }
       if (name in devDepsNext) {
         devDepsNext[name] = `${"../".repeat(pkg.path.split("/").length)}${
           cl.path
-        }`;
+        }/package.tgz`;
       }
     }
     await fs.writeFile(
@@ -760,6 +698,7 @@ async function getPkg(pkgName) {
       JSON.stringify(
         {
           ...pkg.pkgJsonF.json,
+          // version: `${Date.now()}`,
           dependencies: depsNext,
           devDependencies: devDepsNext,
         },
@@ -775,7 +714,7 @@ async function getPkg(pkgName) {
     const promises = [];
 
     // delete the cross-linked packages from the yarn v1 cache to prevent cache conflicts
-    promises.push(yarnBust(pkg));
+    // promises.push(yarnBust(pkg));
 
     // remove the cross-linked packages from yarn v1 cache to avoid conflicts
     promises.push(
@@ -925,30 +864,32 @@ async function yarnBust(pkg) {
   const clNames = Object.keys(pkg.crosslinksAll);
   log3(`yarnBust:${pkg.name}:`, clNames);
 
-  if (pkg.yarnVersion !== 1) {
-    log4("yarnBust:skip-bc-v2+");
-    return;
-  }
-
-  if (!yarnBust.cacheDir) {
-    await yarnBust.init(pkg.pathAbs);
-  }
   while (yarnBust.cacheDir === "loading") {
     await sleep(300);
   }
+  if (!yarnBust.cacheDir) {
+    log2("yarnBust:skip-bc-no-cacheDir-bc-no-yarn-v1s-found");
+    return;
+  }
 
   const cDir = yarnBust.cacheDir;
+  const promises = [];
+
+  // log3(`yarnBust:rm ${cDir}/.tmp`);
+  // promises.push(fs.rm(`${cDir}/.tmp`, { force: true, recursive: true }));
 
   const cPkgDirs = await fs.readdir(cDir);
   const toDelete = cPkgDirs.filter((cpd) =>
     clNames.some((n) => cpd.includes(n.replace("/", "-")))
   );
-  await Promise.all(
-    toDelete.map((cpd) => {
-      log1(`yarnBust:rm:${cpd}`);
+  promises.push(
+    ...toDelete.map((cpd) => {
+      log3(`yarnBust:rm:${cpd}`);
       return fs.rm(`${cDir}/${cpd}`, { force: true, recursive: true });
     })
   );
+
+  await Promise.all(promises);
   log3("yarnBust:end");
 }
 yarnBust.cacheDir = null;
