@@ -77,6 +77,7 @@ async function main(
     default:
       return console.log(usage);
   }
+  console.log("Log:", logn.tmpLog);
 }
 
 /**
@@ -219,7 +220,7 @@ export async function fixDeps(
   log1(`fixDeps:end:${Date.now() - start}ms`);
 
   // Cleanup tmp dir since success
-  await getTmpDir.purge();
+  // await getTmpDir.purge();
 }
 
 export async function unfixDeps(pkgName) {
@@ -280,21 +281,41 @@ export async function rsyncDists(pkgName, watch = false) {
 
   async function doSync() {
     log1(`${lctx}:syncing`);
-    const delta = await Promise.all(
-      Object.values(pkg.crosslinksForDependents).map(async (cl) =>
-        execWs(
-          `rsync -av --delete ${cl.path}/dist/ ` +
-            `${nestedNodeModules}/${cl.name}/dist`
-        ).then((r) =>
-          (r.match(/done([\s\S]*?)\n\n/)?.[1] ?? "")
-            .split("\n")
-            .map((l) => l.trim())
-            .filter(Boolean)
-            .forEach((l) => log1(`${cl.name}: ${l} upserted`))
-        )
-      )
-    );
-    return delta;
+    const pkgs = Object.values(pkg.crosslinksForDependents);
+    const delta = await Promise.all([
+      ...pkgs.map(async (cl) => {
+        if (await fsStatOrNull(`${cl.path}/dist/`)) {
+          return execWs(
+            `rsync -av --delete ${cl.path}/dist/ ` +
+              `${nestedNodeModules}/${cl.name}/dist`
+          );
+        }
+        return "";
+      }),
+      ...pkgs.map(async (cl) => {
+        if (await fsStatOrNull(`${cl.path}/bin/`)) {
+          return execWs(
+            `rsync -av --delete ${cl.path}/bin/ ` +
+              `${nestedNodeModules}/${cl.name}/bin`
+          );
+        }
+        return "";
+      }),
+    ]);
+
+    const trimmed = delta
+      .join("\n")
+      .split("\n")
+      .filter((l) => l.trim())
+      .filter((r) => !r.includes("created"))
+      .filter((r) => !r.includes("done"))
+      .filter((r) => !r.includes("./"))
+      .filter((r) => !r.includes("sent"))
+      .filter((r) => !r.includes("total"));
+    trimmed.forEach((l) => {
+      log3(`${lctx}:${l} upserted`);
+    });
+    return trimmed;
   }
 
   await doSync();
@@ -306,9 +327,13 @@ export async function rsyncDists(pkgName, watch = false) {
     });
     watcher.on("change", () => doSync());
     Object.values(pkg.crosslinks).map(async (cl) => {
-      const distPath = `${cl.path}/dist/`;
-      log1(`watching dep: ${distPath}`);
-      watcher.add(distPath);
+      log1(`${lctx}:watching:${cl.path}`);
+      if (await fsStatOrNull(`${cl.path}/dist/`)) {
+        watcher.add(`${cl.path}/dist/`);
+      }
+      if (await fsStatOrNull(`${cl.path}/bin/`)) {
+        watcher.add(`${cl.path}/bin/`);
+      }
     });
     return () => {
       watcher.close().then(() => log1(`${lctx}:end`));
@@ -679,26 +704,26 @@ async function getPkg(pkgName) {
   pkg.unCrosslink = async () => {
     ws.cd();
     log1(`${lctx}:unCrosslink`);
+
     const depsNext = { ...pkg.dependencies };
     const devDepsNext = { ...pkg.devDependencies };
+    const relPath = "../".repeat(pkg.path.split("/").length);
     for (const [name, cl] of Object.entries(pkg.crosslinksForDependents)) {
       if (name in depsNext) {
-        depsNext[name] = `${"../".repeat(pkg.path.split("/").length)}${
-          cl.path
-        }/package.tgz`;
-      }
-      if (name in devDepsNext) {
-        devDepsNext[name] = `${"../".repeat(pkg.path.split("/").length)}${
-          cl.path
-        }/package.tgz`;
+        depsNext[name] = `${relPath}${cl.path}/package.tgz`;
+      } else {
+        devDepsNext[name] = `${relPath}${cl.path}/package.tgz`;
       }
     }
+
+    log4(`${lctx}:unCrosslink:`, { depsNext, devDepsNext });
+
     await fs.writeFile(
       pkg.pkgJsonF.pathAbs,
       JSON.stringify(
         {
           ...pkg.pkgJsonF.json,
-          // version: `${Date.now()}`,
+          version: `${Date.now()}`,
           dependencies: depsNext,
           devDependencies: devDepsNext,
         },
@@ -1220,7 +1245,6 @@ getTmpDir.purge = async () => {
 
 const logLevel = parseInt(process.env.LOG || "1");
 function logn(n) {
-  getTmpDir();
   return (...args) => {
     const argsExtra = [
       // print a human timestamp with ms
@@ -1232,9 +1256,9 @@ function logn(n) {
       if (logLevel <= 1) console.log(...args);
       else console.log(...argsExtra);
     }
-    getTmpDir().then((tmpDir) =>
+    if (logn.tmpLog) {
       fs.appendFile(
-        `${tmpDir}/run.log`,
+        logn.tmpLog,
         argsExtra
           .map((a) =>
             ["string", "number"].includes(typeof a)
@@ -1242,11 +1266,13 @@ function logn(n) {
               : JSON.stringify(a, null, 2) + "\n"
           )
           .join(" ") + "\n"
-      )
-    );
+      );
+    }
     return args;
   };
 }
+logn.tmpLog = null;
+getTmpDir().then((tmpDir) => (logn.tmpLog = `${tmpDir}/run.log`));
 function log1(...args) {
   return logn(1)(...args);
 }

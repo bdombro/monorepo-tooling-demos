@@ -1,2 +1,2 @@
-const { libVar } = require("../dist/index.js");
-console.log(`libVar: ${libVar}`);
+#!/usr/bin/env node
+require("../dist/index.js");

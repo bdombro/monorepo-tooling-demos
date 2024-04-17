@@ -13,13 +13,14 @@
     "build": "nx run-many -t build",
     "build:scoped": "nx build app",
     "build:changed": "nx affected -t build",
-    "clean": "nx run-many -t clean && lerna clean --yes",
+    "//clean": "nx run-many -t clean && lerna clean --yes",
     "exec": "lerna exec --parallel -- pwd",
     "lint": "nx run-many -t lint",
     "lint:scoped": "nx lint app",
     "test": "nx run-many -t  test",
     "test:scoped": "nx test app",
-    "watch": "nx run-many -t watch"
+    "watch": "nx run-many -t watch",
+    "clean": "find packages \\( -name node_modules -or -name dist -or -name package.tgz \\) -exec rm -rf {} \\;"
   },
   "dependencies": {
     "chokidar": "^3.6.0"
