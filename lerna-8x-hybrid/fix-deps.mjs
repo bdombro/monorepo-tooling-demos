@@ -32,7 +32,7 @@ async function main(
   action
 ) {
   const usage = `
-  Usage: node fix-deps.mjs {packageName} {action}
+  Usage: node crosslink-build.mjs {packageName} {action}
 
   Env:
   LOG=n: sets log level, 1-4 (default 1)
@@ -40,7 +40,7 @@ async function main(
     package names. You may omit the domain if using the default.
 
   Actions:
-  init:
+  build-deps:
     - re-installs cross-linked packages as if they were
       file dependencies and builds them, bottom-up
     - bottom-up: builds a dep tree of cross-linked packages
@@ -48,48 +48,52 @@ async function main(
       build artifacts are ready for dependents
     - resets the package.json and lock files so that
       lerna+nx are unaware
-  un-init: undoes the changes made by init
-  re-init: un-inits and then re-inits
-  build: init + build 
-  reset: reverts the changes made by init
-  sync: rsyncs the dist folders of all cross-linked packages
+  cl-build: build deps AND the package
+  sync: rsyncs the builds of all cross-linked packages with 
   watch: sync with watch mode
+  reset: undoes changes made by build and bootstraps package and all cross-links of it
+  reset-and-cl-build: reset and then build
+  reset-and-build-deps: reset and then build-deps
   `;
   if (!pkgName) return console.log(usage);
 
   try {
     switch (action) {
-      case "init":
-        await fixDeps(pkgName);
-        break;
-      case "un-init":
-        await unfixDeps(pkgName);
-        break;
-      case "re-init":
-        await unfixDeps(pkgName);
-        await fixDeps(pkgName);
+      case "build-deps":
+        await crosslinkBuild(pkgName);
         break;
       case "build":
-        await fixDeps(pkgName, { buildPkgToo: true });
+        await crosslinkBuild(pkgName, { buildPkgToo: true });
+        break;
+      case "reset":
+        await reset(pkgName);
         break;
       case "sync":
-        await rsyncDists(pkgName);
+        await crosslinkSync(pkgName);
         break;
       case "watch":
-        await rsyncDists(pkgName, { watch: true });
+        await crosslinkSync(pkgName, { watch: true });
+        break;
+      case "reset-and-build-deps":
+        await reset(pkgName);
+        await crosslinkBuild(pkgName);
+        break;
+      case "reset-and-build":
+        await reset(pkgName);
+        await crosslinkBuild(pkgName, { buildPkgToo: true });
         break;
       default:
         return console.log(usage);
     }
   } catch (e) {
-    console.log("Log:", logn.tmpLog);
+    console.log("Full-log:", logn.tmpLog);
     throw e;
   }
-  console.log("Log:", logn.tmpLog);
+  console.log("Full-log:", logn.tmpLog);
 }
 
 /**
- * fixDeps:
+ * crosslinkBuild:
  * - re-installs cross-linked packages as if they were
  *   file dependencies and builds them, bottom-up
  * - bottom-up: builds a dep tree of cross-linked packages
@@ -98,13 +102,13 @@ async function main(
  * - resets the package.json and lock files so that
  *   lerna+nx are unaware
  */
-export async function fixDeps(
+export async function crosslinkBuild(
   /** the full name of a package including domain, or short if using default domain */
   pkgName,
   options = {}
 ) {
   const { buildPkgToo = false } = options;
-  log1(`fixDeps:${pkgName}:${buildPkgToo ? "minimal-build" : "build-pkg-too"}`);
+  log1(`cl-build:${pkgName}:${buildPkgToo ? "" : "build-entry-pkg-too"}`);
   const start = Date.now();
 
   const ws = await getWorkspace();
@@ -117,10 +121,10 @@ export async function fixDeps(
   }
 
   const pkgsToFix = { [pkg.name]: pkg, ...pkg.crosslinksAll };
-  log1("fixDeps:fix-todos:", Object.keys(pkgsToFix));
+  log1("cl-build:fix-todos:", Object.keys(pkgsToFix));
 
   try {
-    log1("fixDeps:packing-and-unCrosslinking");
+    log1("cl-build:packing-and-unCrosslinking");
     await Promise.all([
       ...Object.values(pkgsToFix).map(async (ptf) => {
         await ptf.rmCrosslinks();
@@ -130,7 +134,7 @@ export async function fixDeps(
       yarnBust(pkg),
     ]);
 
-    log1("fixDeps:bootstrap");
+    log1("cl-build:bootstrap");
     await (async function bootstrap() {
       await execWs(
         `yarn lerna bootstrap ` +
@@ -164,20 +168,20 @@ export async function fixDeps(
       ).filter(Boolean);
       if (pkgsLernaMissed.length) {
         log1(
-          "fixDeps:bootstrap:missed",
+          "cl-build:bootstrap:missed",
           pkgsLernaMissed.map((p) => p.name)
         );
         const pkgWsPkgsThatFailed = pkgsLernaMissed
           .filter((p) => p.isPkgJsonWsPkg)
           .map((p) => p.name);
         if (pkgWsPkgsThatFailed.length) {
-          const error = `fixDeps:bootstrap:fatal:pkgWsPkgs failed to bootstrap: ${pkgWsPkgsThatFailed}`;
+          const error = `cl-build:bootstrap:fatal:pkgWsPkgs failed to bootstrap: ${pkgWsPkgsThatFailed}`;
           log1(error);
           throw Error(error);
         }
         await Promise.all(
           pkgsLernaMissed.map(async (ptf) => {
-            log1(`fixDeps:bootstrap:retrying:${ptf.name}`);
+            log1(`cl-build:bootstrap:retrying:${ptf.name}`);
             await execWs(
               // `cd ${ptf.path} && yarn install --skip-integrity-check`
               `cd ${ptf.path} && yarn install`
@@ -187,39 +191,42 @@ export async function fixDeps(
       }
     })();
 
-    log1("fixDeps:resetting-packageJsons-and-lockFiles");
+    log1("cl-build:resetting-packageJsons-and-lockFiles");
     await Promise.all(Object.values(pkgsToFix).map(async (ptf) => ptf.reset()));
 
-    log1("fixDeps:building");
+    log1("cl-build:building");
     const buildQueue = { ...pkgsToFix };
     await Promise.all(
       Object.values(pkgsToFix).map(async (ptf) => {
         while (Object.keys(ptf.crosslinksAll).some((l) => l in buildQueue)) {
           await sleep(100);
         }
-        log1(`fixDeps:build:${ptf.name}`);
-        await rsyncDists(ptf, { verbose: false });
-        const stdout = await execWs(`yarn lerna run build --scope=${ptf.name}`);
+        log1(`cl-build:cl-build:${ptf.name}`);
+        await crosslinkSync(ptf, { verbose: false });
+        const stdout = await execWs(
+          `NODE_ENV=production yarn lerna run build --scope=${ptf.name}`
+        );
         stdout
           .split("\n")
-          .forEach((l) => log2(`fixdeps:build:${ptf.name}:`, l));
+          .forEach((l) => log2(`fixdeps:cl-build:${ptf.name}:`, l));
         delete buildQueue[ptf.name];
       })
     );
   } catch (e) {
-    log1("fixDeps:error! resetting-packageJsons-and-lockFiles");
+    log1("cl-build:error! resetting-packageJsons-and-lockFiles");
     // await Promise.all(Object.values(pkgsToFix).map(async (ptf) => ptf.reset()));
     throw e;
   }
 
-  log1(`fixDeps:end:${Date.now() - start}ms`);
+  log1(`cl-build:end:${Math.round((Date.now() - start) / 100)}s`);
 
   // Cleanup tmp dir since success
   // await getTmpDir.purge();
 }
 
-export async function unfixDeps(pkgName) {
-  const lctx = `unfixDeps:${pkgName}`;
+/** undoes changes made by build and bootstraps package and all cross-links of it  */
+export async function reset(pkgName) {
+  const lctx = `reset:${pkgName}`;
   log1(lctx);
 
   const ws = await getWorkspace();
@@ -237,12 +244,10 @@ export async function unfixDeps(pkgName) {
   log1(`${lctx}:unfix-todos:`, Object.keys(pkgsToUnfix));
 
   await Promise.all(
-    Object.values(pkgsToUnfix).map((ptu) => {
-      log1(`${lctx}:rm ${ptu.path}/node_modules`);
-      return fs.rm(`${ptu.path}/node_modules`, {
-        recursive: true,
-        force: true,
-      });
+    Object.values(pkgsToUnfix).map(async (ptu) => {
+      log1(`${lctx}:${ptu.path}`);
+      await ptu.rmCrosslinks();
+      await ptu.reset();
     })
   );
 
@@ -257,11 +262,20 @@ export async function unfixDeps(pkgName) {
 /**
  * syncs the dist folders of all workspace deps in the packagePath
  */
-export async function rsyncDists(pkgOrPkgName, options = {}) {
-  const lctx = `rsyncDists:${pkgOrPkgName?.name ?? pkgOrPkgName}`;
-  log1(lctx, options);
+export async function crosslinkSync(pkgOrPkgName, options = {}) {
+  const lctx = `cl-sync${pkgOrPkgName?.name ?? pkgOrPkgName}`;
 
   const { verbose = true, watch = false } = options;
+
+  let _log1 = log1;
+  let _log2 = log2;
+  let _log3 = log3;
+  let _log4 = log4;
+  if (verbose) {
+    _log1 = _log2 = _log3 = _log4 = log1;
+  }
+
+  _log3(lctx);
 
   const ws = await getWorkspace();
   ws.cd();
@@ -273,12 +287,12 @@ export async function rsyncDists(pkgOrPkgName, options = {}) {
 
   // bail if there are no workspace deps
   if (!(await fsStatOrNull(nestedNodeModules))) {
-    log1(`${lctx}No ws packages to sync`);
+    _log3(`${lctx}:skip:No ws packages to sync`);
     return;
   }
 
   async function doSync() {
-    log1(`${lctx}:syncing`);
+    _log3(`${lctx}:syncing`);
     const pkgs = Object.values(pkg.crosslinksForBuild);
     const delta = await Promise.all(
       pkgs.map(async (cl) => {
@@ -303,9 +317,9 @@ export async function rsyncDists(pkgOrPkgName, options = {}) {
       .filter((r) => !r.includes("sent"))
       .filter((r) => !r.includes("total"));
     trimmed.forEach((l) => {
-      if (verbose) log1(`${lctx}:${l} upserted`);
+      if (verbose) _log1(`${lctx}:${l} upserted`);
     });
-    log2(`${lctx}:synced ${trimmed.length} packages`);
+    _log2(`${lctx}:synced ${trimmed.length} packages`);
     return trimmed;
   }
 
@@ -319,7 +333,7 @@ export async function rsyncDists(pkgOrPkgName, options = {}) {
     });
     watcher.on("change", () => doSync());
     Object.values(pkg.crosslinks).map(async (cl) => {
-      log1(`${lctx}:watching:${cl.path}`);
+      _log1(`${lctx}:watching:${cl.path}`);
       watcher.add(`${cl.path}`);
     });
     return () => {
@@ -1198,7 +1212,7 @@ async function execWs(...execArgs) {
 
 /**
  * Backups files for debugging and troubleshooting purposes
- * to: `/tmp/lerna-fix-deps/${timestamp}`
+ * to: `/tmp/lerna-crosslink-build/${timestamp}`
  */
 async function backupToTmpDir(path, options = {}) {
   const { text = null, moveInsteadOfCopy = false } = options;
@@ -1233,7 +1247,7 @@ async function getTmpDir() {
     .toISOString()
     .slice(0, 19)
     .replace(/(\-|T|:)/g, ".");
-  const tmpDir = `/tmp/lerna-fix-deps/${ts}`;
+  const tmpDir = `/tmp/lerna-crosslink-build/${ts}`;
   log3(`getTmpDir:${tmpDir}`);
   return execP(`mkdir -p ${tmpDir}`).then(
     () => (getTmpDir.last = tmpDir),
