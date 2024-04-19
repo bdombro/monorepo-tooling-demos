@@ -15,7 +15,7 @@
     "build": {
       "dependsOn": ["^build"],
       "outputs": [
-        "{projectRoot}/dist, build"
+        "{projectRoot}/dist, build, start.js, index.js"
       ]
     },
     "lint": {
