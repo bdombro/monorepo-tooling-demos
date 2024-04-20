@@ -22,7 +22,7 @@
     "build:scoped": "nx build app",
     "build:changed": "nx affected -t build",
     "//clean": "nx run-many -t clean && lerna clean --yes",
-    "clean": "find packages \\( -name node_modules -or -name dist -or -name package.tgz \\) -exec rm -rf {} \\;",
+    "clean": "find packages \\( -name @app -or -name dist -or -name package.tgz \\) -exec rm -rf {} \\;",
     "exec": "lerna exec --parallel -- pwd",
     "pack2": "lerna exec --scope=@app/lib --include-dependencies -- yarn pack",
     "lint": "nx run-many -t lint",

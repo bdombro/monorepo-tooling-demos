@@ -20,7 +20,7 @@
     "test": "nx run-many -t  test",
     "test:scoped": "nx test app",
     "watch": "nx run-many -t watch",
-    "clean": "find packages \\( -name node_modules -or -name dist -or -name package.tgz \\) -exec rm -rf {} \\;"
+    "clean": "find packages \\( -name @app -or -name dist -or -name package.tgz \\) -exec rm -rf {} \\;"
   },
   "dependencies": {
     "chokidar": "^3.6.0"
