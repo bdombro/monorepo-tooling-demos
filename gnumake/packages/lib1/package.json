@@ -1,0 +1,24 @@
+{
+  "name": "@app/lib1",
+  "version": "1.0.0",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "echo yarn v$(yarn -v) && tsc",
+    "clean": "rm -rf dist",
+    "lint": "tsc --noEmit",
+    "watch": "tsc --watch"
+  },
+  "license": "ISC",
+  "dependencies": {
+    "lodash": "4.10.0"
+  },
+  "devDependencies": {
+    "@types/lodash": "^4.17.0",
+    "@types/node": "^18",
+    "minimatch": "9.0.3",
+    "typescript": "^5.3.3"
+  },
+  "bin": {
+    "lib1-cli": "./bin/lib1-cli.js"
+  }
+}

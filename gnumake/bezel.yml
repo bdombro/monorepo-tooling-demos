@@ -1,0 +1,17 @@
+project:
+  baseDir: .
+
+sourceDirs:
+  - packages/*/src
+
+outputDir:
+  - packages/*/dist
+
+buildSteps:
+  - name: Bootstrap
+    command: |
+      yarn install
+  - name: Build
+    command: |
+      yarn build
+
