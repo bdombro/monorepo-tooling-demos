@@ -3,8 +3,8 @@
 
 
 "@app/lib2@../lib2/package.tgz":
-  version "1.0.0"
-  resolved "../lib2/package.tgz#c1b5b6aa185b36c115efaf8684b8e6ff43c15088"
+  version "1.0.1"
+  resolved "../lib2/package.tgz#337d86aa17c58edb8141f04903cb5ff5af298850"
 
 typescript@^5.3.3:
   version "5.4.5"

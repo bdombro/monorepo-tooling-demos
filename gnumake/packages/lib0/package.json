@@ -1,6 +1,6 @@
 {
   "name": "@app/lib0",
-  "version": "1.0.0",
+  "version": "1.1.4",
   "main": "dist/index.js",
   "scripts": {
     "build": "echo yarn v$(yarn -v) && tsc",
@@ -19,6 +19,6 @@
     "typescript": "^5.3.3"
   },
   "bin": {
-    "lib0-cli": "./bin/lib0-cli.js"
+    "lib0a-cli": "./bin/lib0-cli.js"
   }
 }

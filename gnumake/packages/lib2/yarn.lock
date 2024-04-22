@@ -3,8 +3,8 @@
 
 
 "@app/lib1@../lib1/package.tgz":
-  version "1.0.0"
-  resolved "../lib1/package.tgz#ebd989f492087ed2ac7336c8dd472202204c02f8"
+  version "1.0.4"
+  resolved "../lib1/package.tgz#519a67268364ec47b02b607dd88491583bc854eb"
   dependencies:
     lodash "4.10.0"
 

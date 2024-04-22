@@ -1,3 +1,3 @@
 const _ = require("lodash");
-const expected = 1;
-console.log(`BIN-TEST: ${_.last([expected])}`);
+const expected = "0x";
+console.log(`BIN-TEST0: ${_.last([expected])}`);

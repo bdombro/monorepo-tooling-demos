@@ -3,18 +3,18 @@
 
 
 "@app/lib1@../lib1/package.tgz":
-  version "1.0.0"
-  resolved "../lib1/package.tgz#ebd989f492087ed2ac7336c8dd472202204c02f8"
+  version "1.0.4"
+  resolved "../lib1/package.tgz#519a67268364ec47b02b607dd88491583bc854eb"
   dependencies:
     lodash "4.10.0"
 
 "@app/lib2@../lib2/package.tgz":
-  version "1.0.0"
-  resolved "../lib2/package.tgz#c1b5b6aa185b36c115efaf8684b8e6ff43c15088"
+  version "1.0.1"
+  resolved "../lib2/package.tgz#337d86aa17c58edb8141f04903cb5ff5af298850"
 
 "@app/lib3@../lib3/package.tgz":
-  version "1.0.0"
-  resolved "../lib3/package.tgz#6aa382ca0cdc492fbc77588a76ccd0c316bdd05f"
+  version "1.0.10"
+  resolved "../lib3/package.tgz#750446a35fa49ebbb5ac12703829fa5116b69209"
   dependencies:
     "@app/lib2" "../lib2/package.tgz"
 

@@ -1,6 +1,6 @@
 {
   "name": "@app/lib1",
-  "version": "1.0.0",
+  "version": "1.0.4",
   "main": "dist/index.js",
   "scripts": {
     "build": "echo yarn v$(yarn -v) && tsc",
