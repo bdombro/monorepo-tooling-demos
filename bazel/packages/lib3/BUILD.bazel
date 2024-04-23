@@ -1,33 +1,8 @@
-genrule(
-    name = "yarn_build",
-    local = True,
-    outs = ["package.tgz"],
-    srcs = glob(["src/**"]) + [
-        "package.json", "tsconfig.json", "yarn.lock",
-        "//packages/lib2:package.tgz"
-        ],
-    visibility = ["//visibility:public"],
-    cmd = """
+load("//rules/yarn_build:defs.bzl", "yarn_build")
 
-    out=`pwd`/$(location package.tgz)
-    pkgDir=`dirname $(location package.json)`
-    cd $$pkgDir
-    
-    rm -rf package.tgz dist build
-	[ -f yarn.lock ] && sed -i '' -n '/@app\\/lib/,/^$$/!p' yarn.lock
-	# TODO: add nested crosslinks to package.json
-	yarn --mutex file install
-	yarn build
-	yarn pack -f package.tgz
-	
-    # clear yarn cache for this package
-    export pkgName=`jq -r '.name' package.json | tr -d '\\n'`
-    yarn cache clean $$pkgName
-    find `yarn cache dir`/.tmp -name package.json -exec grep -l $$pkgName {} \\; | xargs dirname | xargs rm -rf
-    
-    # echo fooooo2 > $$out
-    cp package.tgz $$out
-    
-    """,
+yarn_build(
+    name = "build",
+    visibility = ["//visibility:public"],
+    srcs = glob(["src/**"]) + ["tsconfig.json", "//packages/lib2:package.tgz"],
 )
 

@@ -3,6 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "dependencies": {
+    "@app/lib2": "../lib2/package.tgz",
+    "@app/lib3": "../lib3/package.tgz",
     "@app/lib4": "../lib4/package.tgz",
     "@app/lib5": "../lib5/package.tgz",
     "@testing-library/jest-dom": "^5.17.0",

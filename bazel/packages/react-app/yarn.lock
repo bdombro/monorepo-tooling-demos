@@ -52,13 +52,13 @@
 
 "@app/lib3@../lib3/package.tgz":
   version "1.0.10"
-  resolved "../lib3/package.tgz#670be6f62c7dcbf0e4c4026dc869b885ad0258e6"
+  resolved "../lib3/package.tgz#5d9b05c20b228287197e9b3d394239a1fb459643"
   dependencies:
     "@app/lib2" "../lib2/package.tgz"
 
 "@app/lib4@../lib4/package.tgz":
   version "1.0.1"
-  resolved "../lib4/package.tgz#43697d5e2c41a6d64ec31aff6fc9f47a2c178f48"
+  resolved "../lib4/package.tgz#0dbd0a0f04fe95bd860c72abb89e1cabf3e4d687"
   dependencies:
     "@app/lib3" "../lib3/package.tgz"
 

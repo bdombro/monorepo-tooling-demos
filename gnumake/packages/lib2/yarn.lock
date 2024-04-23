@@ -2,12 +2,6 @@
 # yarn lockfile v1
 
 
-"@app/lib1@../lib1/package.tgz":
-  version "1.0.4"
-  resolved "../lib1/package.tgz#519a67268364ec47b02b607dd88491583bc854eb"
-  dependencies:
-    lodash "4.10.0"
-
 "@slimr/util@^2.0.0":
   version "2.2.8"
   resolved "https://registry.yarnpkg.com/@slimr/util/-/util-2.2.8.tgz#d2677b66f068be62de70d3e0ca969319311fd388"

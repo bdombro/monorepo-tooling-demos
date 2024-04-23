@@ -888,6 +888,15 @@ class wss {
               )}`
             );
 
+            // TODO: Also remove file relative packages
+            // relDepFilter = (deps = {}) =>
+            //   Object.entries(deps)
+            //     .filter(([d, v]) => v.startsWith("../"))
+            //     .forEach(([d, v]) => delete deps[d]);
+            // clFilter(js.dependencies);
+            // clFilter(js.devDependencies);
+            // clFilter(js.peerDependencies);
+
             const res = pkg.pkgJsonF.text.replace(clDepExp, "");
 
             _p.push(fs.writeFile(pkg.pkgJsonF.path, res));

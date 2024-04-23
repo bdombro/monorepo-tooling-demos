@@ -2,22 +2,6 @@
 # yarn lockfile v1
 
 
-"@app/lib1@../lib1/package.tgz":
-  version "1.0.4"
-  resolved "../lib1/package.tgz#519a67268364ec47b02b607dd88491583bc854eb"
-  dependencies:
-    lodash "4.10.0"
-
-"@app/lib2@../lib2/package.tgz":
-  version "1.0.1"
-  resolved "../lib2/package.tgz#337d86aa17c58edb8141f04903cb5ff5af298850"
-
-"@app/lib3@../lib3/package.tgz":
-  version "1.0.10"
-  resolved "../lib3/package.tgz#750446a35fa49ebbb5ac12703829fa5116b69209"
-  dependencies:
-    "@app/lib2" "../lib2/package.tgz"
-
 lodash@4.10.0:
   version "4.10.0"
   resolved "https://registry.yarnpkg.com/lodash/-/lodash-4.10.0.tgz#3d8f3ac7a5a904fdb01e2cfe1401879bf9652c6a"

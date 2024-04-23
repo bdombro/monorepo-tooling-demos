@@ -34,41 +34,6 @@
     jsonpointer "^5.0.0"
     leven "^3.1.0"
 
-"@app/lib0@../lib0/package.tgz":
-  version "1.1.4"
-  resolved "../lib0/package.tgz#872aff7d41beed7bfdf0c8b8dac41084c85316ac"
-  dependencies:
-    lodash "4.10.0"
-
-"@app/lib1@../lib1/package.tgz":
-  version "1.0.4"
-  resolved "../lib1/package.tgz#519a67268364ec47b02b607dd88491583bc854eb"
-  dependencies:
-    lodash "4.10.0"
-
-"@app/lib2@../lib2/package.tgz":
-  version "1.0.1"
-  resolved "../lib2/package.tgz#337d86aa17c58edb8141f04903cb5ff5af298850"
-
-"@app/lib3@../lib3/package.tgz":
-  version "1.0.10"
-  resolved "../lib3/package.tgz#750446a35fa49ebbb5ac12703829fa5116b69209"
-  dependencies:
-    "@app/lib2" "../lib2/package.tgz"
-
-"@app/lib4@../lib4/package.tgz":
-  version "1.0.1"
-  resolved "../lib4/package.tgz#69f0463c532310c11fac854c79306226ba70fed0"
-  dependencies:
-    "@app/lib3" "../lib3/package.tgz"
-
-"@app/lib5@../lib5/package.tgz":
-  version "1.0.3"
-  resolved "../lib5/package.tgz#cf965f73507452ef289e9fd9414e8b57c535160c"
-  dependencies:
-    "@app/lib0" "../lib0/package.tgz"
-    "@app/lib1" "../lib1/package.tgz"
-
 "@babel/code-frame@^7.0.0", "@babel/code-frame@^7.10.4", "@babel/code-frame@^7.12.13", "@babel/code-frame@^7.16.0", "@babel/code-frame@^7.23.5", "@babel/code-frame@^7.24.1", "@babel/code-frame@^7.24.2", "@babel/code-frame@^7.8.3":
   version "7.24.2"
   resolved "https://registry.yarnpkg.com/@babel/code-frame/-/code-frame-7.24.2.tgz#718b4b19841809a58b29b68cde80bc5e1aa6d9ae"
@@ -6555,11 +6520,6 @@ lodash.uniq@^4.5.0:
   version "4.5.0"
   resolved "https://registry.yarnpkg.com/lodash.uniq/-/lodash.uniq-4.5.0.tgz#d0225373aeb652adc1bc82e4945339a842754773"
   integrity sha512-xfBaXQd9ryd9dlSDvnvI0lvxfLJlYAZzXomUYzLKtUeOQvOP5piqAWuGtrhWeqaXK9hhoM/iyJc5AV+XfsX3HQ==
-
-lodash@4.10.0:
-  version "4.10.0"
-  resolved "https://registry.yarnpkg.com/lodash/-/lodash-4.10.0.tgz#3d8f3ac7a5a904fdb01e2cfe1401879bf9652c6a"
-  integrity sha512-uDkT/I1Y2X0gvxCdeosY9/XImqohEKRrvj/NLXA7H1NKWdu61lHnrIHiQPNlvIXCzsbnBqwdheW0AbKMxMQF+Q==
 
 lodash@^4.17.15, lodash@^4.17.20, lodash@^4.17.21, lodash@^4.7.0:
   version "4.17.21"
