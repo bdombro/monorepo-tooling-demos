@@ -10,7 +10,7 @@
   },
   "license": "ISC",
   "devDependencies": {
-    "@app/lib1": "../lib1/package.tgz",
+    "@app/lib1": "workspace:*",
     "@slimr/util": "^2.0.0",
     "typescript": "^5.3.3"
   }

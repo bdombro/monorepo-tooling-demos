@@ -1,7 +1,10 @@
-load("//rules/yarn_build:defs.bzl", "yarn_build")
+load("//rules/yarn_rules:defs.bzl", "build")
 
-yarn_build(
+# AUTO-GENERATED
+DEPS = []
+
+build(
     name = "build",
     visibility = ["//visibility:public"],
-    srcs = glob(["src/**"]) + ["tsconfig.json"],
+    srcs = DEPS + glob(["src/**"]) + ["tsconfig.json"],
 )

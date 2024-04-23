@@ -10,7 +10,7 @@
   },
   "license": "ISC",
   "dependencies": {
-    "@app/lib2": "../lib2/package.tgz"
+    "@app/lib2": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.3.3"

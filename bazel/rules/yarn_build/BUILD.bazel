@@ -1,3 +1,0 @@
-# File is essential but okay to be empty.
-# load("defs.bzl", "yarn_build")
-# yarn_build(name = "bin", outs = ["bin.js"] , srcs = ["index.js"])

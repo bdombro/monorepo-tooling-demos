@@ -1,12 +1,22 @@
 
-def _impl_yarn_build(ctx):
+def _impl_build(ctx):
     srcs = ctx.files.srcs
     outs = ctx.outputs.outs
 
     cmd = """
     
-    pkgDir=`dirname {0}`
+    wsDir=`pwd`
+    pkgDir=$wsDir/`dirname {0}`
+    pkgsDir=$wsDir/`dirname $pkgDir`
+    rulesDir=$wsDir/rules
+    yarnRulesDir=$rulesDir/yarn_rules
+    preinstallTs=$yarnRulesDir/preinstall.ts
+    prepackTs=$yarnRulesDir/prepack.ts
+
+    echo pkgDir: $pkgDir
+
     out=`pwd`/{1}
+    echo out: $out
     
     cd $pkgDir
     
@@ -17,26 +27,21 @@ def _impl_yarn_build(ctx):
     # nested crosslinks and converting them to relative paths
     # 1. remove cls from yarn.lock so yarn fresh installs
 	[ -f yarn.lock ] && sed -i '' -n '/@..\\//,/^$/!p' yarn.lock
-    # TODO: 2. upsert cls (incl nested) as ../[pkg]/package.tgz to package.json
+    # 2. upsert cls (incl nested) as ../[pkg]/package.tgz to package.json
     cp package.json package.json.bak
+    bun $preinstallTs
+    cat package.json | grep "@app"
 	
     # Install and build
     echo "yarn install $pkgDir"
-    yarn --mutex file install
+    # TODO: How to handle when we need lockfile changes
+    yarn install --mutex file
     echo "yarn build $pkgDir"
     yarn build
     
     # Prepare package for packing and pack
     # Remove all crosslinks from package.json
-    bun -e "
-        fs = require('fs')
-        js = JSON.parse(fs.readFileSync('package.json'), 'utf8')
-        rm = (deps = {{}}) => 
-            Object.entries(deps).filter(([d,v]) =>
-                v.startsWith('../')).forEach(([d,v]) => delete deps[d])
-        rm(js.dependencies); rm(js.devDependencies); rm(js.peerDependencies)
-        fs.writeFileSync('package.json', JSON.stringify(js, null, 2), 'utf8')
-    "
+    bun $prepackTs
 	yarn pack -f package.tgz
 	
     # clear yarn cache for this package
@@ -54,6 +59,7 @@ def _impl_yarn_build(ctx):
     """.format(srcs[0].path, outs[0].path)+ ctx.attr.cmd
 
     ctx.actions.run_shell(
+        use_default_shell_env = True,
         # TODO: How to let packages get node_modules back?
         outputs = outs,
         inputs = srcs,
@@ -65,8 +71,8 @@ def _impl_yarn_build(ctx):
     return [DefaultInfo(files = depset(outs))]
 
 
-_yarn_build = rule(
-    implementation = _impl_yarn_build,
+_build = rule(
+    implementation = _impl_build,
     attrs = {
         "srcs": attr.label_list(allow_files=True, default=[]),
         "outs": attr.output_list(),
@@ -79,7 +85,7 @@ _yarn_build = rule(
 """,
 )
 
-def yarn_build(
+def build(
     name,
     srcs=[],
     outs=[],
@@ -88,10 +94,13 @@ def yarn_build(
     ):
     # prepend package.json and yarn.lock to srcs
     srcs = [src for src in srcs if src != "package.json" and src != "yarn.lock"]
-    srcs = ["package.json", "yarn.lock"] + srcs
+    srcs = [
+        "package.json", "yarn.lock",
+        "//:.tool-versions", "//rules/yarn_rules:preinstall.ts", "//rules/yarn_rules:prepack.ts"
+    ] + srcs
     outs = [out for out in outs if out != "package.tgz"]
     outs = ["package.tgz"] + outs
-    _yarn_build(
+    _build(
         name = name,
         srcs = srcs,
         outs = outs,

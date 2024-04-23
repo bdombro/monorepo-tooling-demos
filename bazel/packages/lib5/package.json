@@ -12,8 +12,8 @@
   "dependencies": {
   },
   "devDependencies": {
-    "@app/lib0": "../lib0/package.tgz",
-    "@app/lib1": "../lib1/package.tgz",
+    "@app/lib0": "workspace:*",
+    "@app/lib1": "workspace:*",
     "typescript": "^5.3.3"
   }
 }

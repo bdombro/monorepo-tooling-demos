@@ -9,3 +9,4 @@ node_modules/
 package.tgz
 yarn-error.log
 build.log
+bazel-*

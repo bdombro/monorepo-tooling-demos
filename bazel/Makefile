@@ -10,7 +10,7 @@ usage:
 PKGS_DIR := packages
 
 all:
-	bazel build --explain=build.log --verbose_failures //packages/react-app:build
+	bazel build //packages/react-app:build --explain=build.log --verbose_failures --spawn_strategy=standalone
 
 clean:
 	rm -rf bazel-*
@@ -28,5 +28,9 @@ clean-hard:
 	bazel clean --expunge
 	make clean
 
+openBuilds:
+	code $(PKGS_DIR)/*/BUILD.bazel
+
+
 %:
-	bazel build --explain=build.log --verbose_failures //packages/$@:build
+	bazel build //packages/$@:build --explain=build.log --verbose_failures --spawn_strategy=standalone
