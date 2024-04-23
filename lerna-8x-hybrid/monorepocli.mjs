@@ -1,20 +1,30 @@
 #!/usr/bin/env node
 /**
+ * monorepocli (aka mrc) - A monorepo cli tool that links internal packages like npm packages
+ *
  * Motivation:
- *   monorepos install devDependencies for all workspaces (ws), and use simple symlinks to connect them.
- *   This can lead to nested devDependencies, which can cause resolution conflicts in the a package.
- *   Example conflicts:
- *   - a React app may have deps that have a diff version of React in their devDependencies. This
- *     will cause bundlers to include multiple versions of React, which blows up the bundle size,
+ *   1. Existing monorepo tools mismanage crosslinks in a monorepo, by linking them via a basic symlink.
+ *     This causes many issues, such as:
+ *     1. deeply nested node_modules folders
+ *     2. devDependencies of the crosslinks being installed
+ *     3. dependencies being in diff places vs if installed as an npm package
+ *     4. symlink issues todo with the way that node resolves modules
+ *   2. Existing monorepo tools don't allow for each package to have it's own package manager and lock
+ *      file, which dramatically decreases flexibility, while dramatically increasing cost of adoption
+ *
+ *   Example crosslink conflicts in existing tools:
+ *   - a React app may have deps that have devDeps with diff version of React. This causes typescript
+ *     and bundlers to include multiple versions of React, which blows up the bundle size,
  *     causes runtime errors, and typescript errors.
+ *   - symlink resolution conflict: if "libA" depends on lodash, and "libB" depends on lodash and
+ *     "libA", nested libA will use it's own copy of lodash instead of libB's.
+ *
  * Goal: De-conflict nested dependencies
- * Approach: Re-installing cross-linked packages as if they were file dependencies.
  *
  * Assumptions:
- *  - This cwd is somewhere inside a lerna ws
- *  - The ws root has a package.json with a workspaces field or lerna.json with a packages field
+ *  - This script is called from somewhere inside a monorepocli monorepo
+ *  - The ws root has a monorepocli.conf.js field
  *  - Workspace packages have a name field with a domain, ie @app/packageName
- *  - Using lerna+nx package manager
  *  - ws packages don't use postinstall or postbuild scripts
  */
 import { exec as cpExec } from "child_process";
@@ -52,12 +62,10 @@ async function main(
     - bottom-up: builds a dep tree of cross-linked packages
       and processes them in order of dependencies, so that
       build artifacts are ready for dependents
-    - resets the package.json and lock files so that
-      lerna+nx are unaware
   build: build deps AND the package
   sync: rsyncs the builds of all cross-linked packages with 
   watch: sync with watch mode
-  reset: undoes changes made by build and bootstraps package and all cross-links of it
+  reset: undoes changes made by build and installs package and all cross-links of it
   reset-and-build: reset and then build
   reset-and-build-deps: reset and then build-deps
   test-mode-semi-dry: build, but mocks the slow and high-risk parts
@@ -123,7 +131,7 @@ async function main(
         - target: ${res.target}
         - ctx: ${str2(res.ctx)}
         - pack: ${str2(res.pack)}
-        - strap: ${str2(res.strap)}
+        - install: ${str2(res.install)}
         - build: ${str2(res.build)}
         ${res.error ? "" : "- completion: ALL"}
         ${res.error ? `- error: ${res.error}` : ""}
@@ -144,8 +152,6 @@ async function main(
  * - bottom-up: builds a dep tree of cross-linked packages
  *   and processes them in order of dependencies, so that
  *   build artifacts are ready for dependents
- * - resets the package.json and lock files so that
- *   lerna+nx are unaware
  */
 export class CrosslinkBuild {
   pkgName = "";
@@ -160,7 +166,7 @@ export class CrosslinkBuild {
     start: "start",
     ctx: "ctx",
     pack: "pack",
-    strap: "strap",
+    install: "install",
     build: "build",
   };
 
@@ -191,16 +197,10 @@ export class CrosslinkBuild {
     pack: {
       time: 0,
     },
-    /** bootstrap results */
-    strap: {
+    /** install results */
+    install: {
       time: 0,
-      /**
-       * count of pkgs that lerna bootstrap failed on. Seems to happen only when using lerna legacy
-       * plugins, and we tolerate it with a fallback to `cd pkg; yarn install`
-       */
-      lernaMissCount: 0,
-      /** which pkgs lerna bootstrap failed on */
-      lernaMisses: [],
+      count: 0,
     },
     /** build results */
     build: {
@@ -288,8 +288,8 @@ export class CrosslinkBuild {
       await clb.pack();
       if (ENV.stopAfterStep === clb.steps.pack) process.exit(1);
 
-      await clb.bootstrap();
-      if (ENV.stopAfterStep === clb.steps.strap) process.exit(1);
+      await clb.install();
+      if (ENV.stopAfterStep === clb.steps.install) process.exit(1);
 
       await clb.build();
 
@@ -344,18 +344,12 @@ export class CrosslinkBuild {
 
       const _p = [];
 
-      // TODO: COnsider a nx plugin or hook
-      // TODO: COnsider using pre and post build scripts to maybe better utizize nx build process
-
-      // 1. delete the cross-linked packages from the yarn v1 cache to prevent cache conflicts
-      _p.push(wss.yarnBust(this.pkg));
-
       // 2. for each cross-linked package, prepare it for packing, pack it, then reset it
       _p.push(
         ...oVals(this.pkgsToFix).map(async (ptf) => {
           await ptf.rmCrosslinks({ nodeModules: false });
           await ptf.pack();
-          await ptf.unCrosslink();
+          await ptf.reset();
         })
       );
 
@@ -370,122 +364,43 @@ export class CrosslinkBuild {
     }
   }
 
-  async bootstrap() {
+  async install() {
     const clb = this;
-    const res = clb.runResult.strap;
-    const lctx = `clb:strap`;
+    const res = clb.runResult.install;
+    const lctx = `clb:install`;
 
     const start = Date.now();
-    const finishCb = () => {
-      res.time = Time.diff(start);
-      log1(`${lctx}->done! ${res.time}`);
-    };
 
     try {
       log2(`${lctx}->start!`);
 
-      // bootstrap all at once using lerna bootstrap and --scopes for each pkg
-      const lernaBootstrapCmd =
-        `yarn lerna bootstrap ` +
-        oKeys(clb.pkgsToFix)
-          .map((name) => `--scope=${name}`)
-          .join(" ");
-      await sh
-        .exec(lernaBootstrapCmd, {
-          mockStdout: "",
-          workingDir: clb.ws.path,
-        })
-        .catch((e) => {
-          throw oAss(e, { step: `lerna:${e?.step}` });
-        });
+      // 1. delete the cross-linked packages from the yarn v1 cache to prevent cache conflicts
+      await wss.yarnBust(this.pkg);
 
-      /**
-       * count of pkgs that lerna bootstrap failed on. Seems to happen only when using lerna legacy
-       * plugins
-       */
-      const pkgsLernaMissed = await (async function findPkgsLernaMissed() {
-        return (
-          await pAll(
-            oVals(clb.pkgsToFix).map(async (ptf) => {
-              // check if the package hasn't been bootstrapped at all
-              const missingNodeModules = !(await fs.fsStat(
-                `${ptf.path}/node_modules`
-              ));
-              if (missingNodeModules) return ptf;
-              // Also check if any of the cross-linked packages are missing
-              const missingCls = (
-                await pAll(
-                  oVals(ptf.crosslinksForBuild).map(async (ptf2) => {
-                    return !(await fs.fsStat(
-                      `${ptf.path}/node_modules/${ptf2.name}`
-                    ));
-                  })
-                )
-              ).find(Boolean);
-              if (missingCls) return ptf;
-            })
-          )
-        ).filter(Boolean);
-      })().catch((e) => {
-        throw oAss(e, { step: "findPkgsLernaMissed" });
-      });
+      // TODO: use whatever package manager is in the ws root
 
-      res.lernaMissCount = pkgsLernaMissed.length;
-      res.lernaMisses = pkgsLernaMissed.map((p) => p.name);
-
-      // If empty then all packages were bootstrapped sufficiently (hopefully)
-      if (!pkgsLernaMissed.length) {
-        finishCb();
-        return;
-      }
-
-      log1(`${lctx}:missed->${str(pkgsLernaMissed.map((p) => p.name))}`);
-
-      /**
-       * Ok Lerna failed to fully bootstrap some pkgs. That's okay and we can
-       * fallback to just running `yarn install` in each package. This is a little
-       * slower, but it's a good fallback.
-       *
-       * But, we can't fallback though if the package is part of a yarn workspace,
-       * because `cd pkg; yarn install` will install all the workspace packages. But,
-       * lerna bootstrap *should* be reliable on yarn workspaces so I don't expect
-       * this ot happen. Checking anyways though for posterity.
-       */
-
-      /** check if any of the failed pkgs are in a yarn workspace */
-      const pkgWsPkgsThatFailed = pkgsLernaMissed
-        .filter((p) => p.isPkgJsonWsPkg)
-        .map((p) => p.name);
-      if (pkgWsPkgsThatFailed.length) {
-        const step = "checkForPkgWsPkgsThatFailed";
-        const error = oAss(
-          Error(`strap:${step}:ERROR>${str(pkgWsPkgsThatFailed)}`),
-          { pkgs: pkgWsPkgsThatFailed, step }
-        );
-        if (!ENV.semiDry) throw error;
-        log4(e.message);
-      }
-
-      /** apply fallback to failed pkgs = `cd pkg; yarn install` */
       await pAll(
-        pkgsLernaMissed.map(async (ptf) => {
-          log1(`${lctx}:yarnInstall->${ptf.name}`);
+        oVals(this.pkgsToFix).map(async (ptf) => {
+          log1(`${lctx}:install->${ptf.name}`);
           await sh
             .exec(`yarn install`, { mockStdout: "", workingDir: ptf.path })
             .catch((e) => {
-              throw oAss(e, { pkgs: [ptf.name], step: "yarnInstall" });
+              throw oAss(e, { pkgs: [ptf.name], step: "install" });
             });
         })
       );
 
-      // end bootstrapMain
+      // end installMain
     } catch (e) {
-      throw oAss(e, { step: `strap:${e?.step}` });
+      throw oAss(e, { step: `install:${e?.step}` });
     }
 
-    return finishCb();
+    res.time = Time.diff(start);
+    log1(`${lctx}->done! ${res.time}`);
   }
 
+  // TODO: combine with strap step
+  // TODO: break out a "exec-bottom-up" feature in wss
   async build() {
     const lctx = `clb:build`;
     const clb = this;
@@ -498,77 +413,44 @@ export class CrosslinkBuild {
       const ws = await wss.getWorkspace();
       const buildQueue = { ...clb.pkgsToFix };
 
-      // hide the project graph to prevent nx from being aware of the cross-linked packages
-      await ws.hideNxProjectGraph();
-
       await pAll(
         oVals(clb.pkgsToFix).map(async function bldPkg(ptf) {
           try {
             const start = Date.now();
-            const _p = []; // promise array
 
             // wait for the cross-linked packages to finish building
             while (oKeys(ptf.crosslinksAll).some((l) => l in buildQueue)) {
               await sh.sleep(100);
             }
 
+            // TODO: Cache
+            // TODO: wss.bottom-up-run
+            const cached = null;
+            if (cached) {
+              res.time = Time.diff(start);
+              log1(`${lctx}:${ptf.name}->cache-hit! ${res.time}`);
+              delete buildQueue[ptf.name];
+              res.count++;
+              res.cacheHits++;
+              return;
+            }
+
             log2(`${lctx}:${ptf.name}->start!`);
 
-            // sync the cross-linked packages with the build artifacts in ptf
-            _p.push(wss.syncCrosslinks(ptf, { verbose: false }));
-
-            // remove the cross-links from the package.json file
-            _p.push(ptf.rmCrosslinks({ nodeModules: false }));
-
-            // remove the cross-links from the package.json file
-            // TODO: should be done at end of bootstrap, but doing here for now
-            // _p.push(ptf.reset());
-
-            await pAll(_p);
-
-            const stdout = await sh.exec(
-              // `yarn lerna run build --scope=${ptf.name}`,
-              `yarn nx build ${ptf.name}`,
-              {
-                mockStdout: `Nx read the output from the cache instead of running the command for 1 out of 1 tasks`,
-                workingDir: ws.path,
-              }
-            );
-
-            const [cacheHits = 0, buildTasks = 1] =
-              stdout
-                .matchAll(
-                  /Nx read the output from the cache instead of running the command for (\d+) out of (\d+) tasks/g
-                )
-                .next()
-                ?.value?.slice(1)
-                .map(Number) ?? [];
-
-            res.count += buildTasks;
-
-            /** We expect there to only be one build task per pkg, bc we ran ptf.unCrosslink in pack step. */
-            if (buildTasks !== 1) {
-              throw Error(
-                `${lctx}: ${ptf.name}:build:[ptf]:error: ${buildTasks} tasks, expected 1`
-              );
-            }
-
-            /**
-             * count of pkgs that nx build cache-missed on. This should be low if nothing
-             * changed since last build. Typically for example, nx won't pull from cache on the pkg that it's
-             * targeting, ie pkgName in `nx build --scope=pkgName`. But it should hopefully cache most of the
-             * time for the cross-linked packages of pkgName.
-             */
-            if (cacheHits) {
-              res.cacheHits += cacheHits;
-            } else {
-              res.cacheMisses += buildTasks - cacheHits;
-              res.cacheMissPkgs.push(ptf.name);
-            }
+            await sh
+              .exec(`yarn build`, {
+                mockStdout: ``,
+                workingDir: ptf.path,
+              })
+              .catch((e) => {
+                throw oAss(e, { pkgs: [ptf.name], step: "fresh" });
+              });
 
             delete buildQueue[ptf.name];
-
-            log1(`${lctx}:${ptf.name}->done! ${Time.diff(start)}`);
+            res.count++;
+            res.cacheMiss++;
+            res.time = Time.diff(start);
+            log1(`${lctx}:${ptf.name}->built! ${res.time}`);
 
             // end bldPkgMain
           } catch (e) {
@@ -578,8 +460,6 @@ export class CrosslinkBuild {
         })
         // end pAll
       );
-
-      await ws.unhideNxProjectGraph();
 
       res.time = Time.diff(start);
       log1(`${lctx}->done! ${res.time}`);
@@ -591,7 +471,7 @@ export class CrosslinkBuild {
   }
 }
 
-/** undoes changes made by build and bootstraps package and all cross-links of it  */
+/** undoes changes made by build and install and all cross-links of it  */
 export async function crosslinkReset(pkgName) {
   const lctx = `clReset: ${pkgName}`;
   log2(`${lctx}->start!`);
@@ -616,9 +496,9 @@ export async function crosslinkReset(pkgName) {
     })
   );
 
-  log1(`${lctx}:bootstrap:`);
+  log1(`${lctx}:install:`);
   await sh.exec(
-    `yarn lerna bootstrap --scope=${pkg.name} --include-dependencies`,
+    `yarn lerna install --scope=${pkg.name} --include-dependencies`,
     { workingDir: ws.path }
   );
 
@@ -654,79 +534,48 @@ class wss {
       log3(`${lctx}->start!`);
 
       ws.path = process.cwd();
-      stepUpDir: while (ws.path !== "/") {
+      let confImport = null;
+      do {
         log5(`${lctx}:try->${ws.path}`);
-        ws.pkgJsonF = await fs.getPkgJsonFile(`${ws.path}/package.json`, true);
-        if (ws.pkgJsonF?.workspaces?.[0]) {
-          ws.pkgJsonWsGlobs = ws.pkgJsonF.workspaces;
-          ws.wsGlobs = ws.wsGlobs.concat(ws.pkgJsonF.workspaces);
-        }
-        if (ws.pkgJsonF) {
-          ws.lernaJsonF = await fs.getJsonFile(`${ws.path}/lerna.json`, true);
-          if (ws.lernaJsonF?.json?.packages?.[0]) {
-            ws.wsGlobs = ws.wsGlobs.concat(ws.lernaJsonF.json.packages);
-          }
-        }
-        if (ws.wsGlobs.length) break stepUpDir;
-        ws.path = dirname(ws.path);
+        confImport = (await import(`${ws.path}/monorepocli.json`)).catch(
+          () => {}
+        );
+      } while (!confImport && (ws.path = dirname(ws.path)) !== "/");
+
+      if (!confImport) throw Error(`${lctx}->No workspace root found`);
+
+      if (!confImport?.conf)
+        throw Error(`${lctx}->monorepocli.json missing conf export`);
+
+      oAss(ws, confImport.conf);
+
+      if (!ws.workspaces?.length) {
+        throw Error(
+          `${lctx}->monorepocli.json.workspaces must be an array of packages`
+        );
       }
-      if (!ws.wsGlobs.length) throw Error(`${lctx}->No workspace root found`);
 
       log2(`ws->${ws.path}`);
 
-      ws.cd = () => {
-        log4(`${lctx}:cd: ${ws.path}`);
-        process.chdir(ws.path);
-      };
+      const globs = ws.workspaces.filter((g) => g.endsWith("*"));
+      ws.workspaces = ws.workspaces.filter((g) => !g.endsWith("*"));
 
-      ws.hideNxProjectGraph = async () => {
-        await fs
-          .rename(
-            `${ws.path}/.nx/cache/project-graph.json`,
-            `${ws.path}/.nx/cache/project-graph.bak.json`,
-            { skipBackup: true }
-          )
-          .catch(() => {});
-      };
-      ws.unhideNxProjectGraph = async () => {
-        await fs
-          .rename(
-            `${ws.path}/.nx/cache/project-graph.bak.json`,
-            `${ws.path}/.nx/cache/project-graph.json`,
-            { skipBackup: true }
-          )
-          .catch(() => {});
-      };
-
-      ws.wsGlobs = [...new Set(ws.wsGlobs)]; // de-dupe
-
-      ws.lockFile = await wss.findLockFile(ws.path, true);
-      if (!ws.lockFile.name) {
-        throw Error(`${lctx}: Workspace missing lock file`);
-      }
-      ws.yarnVersion = ws.lockFile.yarnVersion;
-      if (ws.lockFile.name !== "yarn.lock") {
-        throw Error(
-          `${lctx}:yarn-check:error->${ws.pkgJsonF.name} has unsupported package manager with lockFile=${ws.lockFile.name}`
-        );
-      }
-      if (ws.yarnVersion === 1) {
-        wss.yarnBustInit(ws.path);
-      }
-
-      // TODO: Maybe consolidate these paths with all paths and simplify stuff above
-      ws.pkgJsonWsPaths = await (async () => {
-        const globs = ws.pkgJsonWsGlobs.filter((g) => g.endsWith("*"));
-        const paths = ws.pkgJsonWsGlobs.filter((g) => !g.endsWith("*"));
-        await pAll(
-          globs.map(async (g) => {
-            const dirPath = basename(g);
-            const ls = await fs.getRead(`${ws.path}/${dirPath}`, true);
-            paths.push(...ls.files.map((f) => `${dirPath}/${f}`));
-          })
-        );
-        return paths;
-      })();
+      await pAll(
+        // check that all workspaces are real folders
+        ...ws.workspaces.map(async (g) => {
+          await fs.fsStat(`${ws.path}/${g}`).catch(() => {
+            throw Error(`${lctx}->${g} in workspace:${ws.path} not found`);
+          });
+        }),
+        // enumerate globs
+        ...globs.map(async (g) => {
+          const dirPath = basename(g);
+          const ls = await fs.ls(`${ws.path}/${dirPath}`).catch(() => {
+            throw Error(`${lctx}->${dirPath} in workspace:${g} not found`);
+          });
+          ws.workspaces.push(...ls.files.map((f) => `${dirPath}/${f}`));
+        })
+      );
 
       ws.reset = async () => {
         log4(`${lctx}:reset->start!`);
@@ -746,8 +595,7 @@ class wss {
      */
     cd: () => {},
     /**
-     * the full path to the ws. tip: prefer using ws.cd() and relative paths instead
-     * so logs are cleaner
+     * the full path to the ws
      */
     path: "",
     pkgJsonF: {},

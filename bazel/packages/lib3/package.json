@@ -1,0 +1,18 @@
+{
+  "name": "@app/lib3",
+  "version": "1.0.10",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "echo yarn v$(yarn -v) && tsc",
+    "clean": "rm -rf dist",
+    "lint": "tsc --noEmit",
+    "watch": "tsc --watch"
+  },
+  "license": "ISC",
+  "dependencies": {
+    "@app/lib2": "../lib2/package.tgz"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

@@ -9,7 +9,6 @@ usage:
 define buildPkg
 	@echo "Building $1"
 	cd $1 && rm -rf package.tgz dist build
-	@# sed -i '' -n '/@..\//,/^$/!p' yarn.lock
 	[ -f $1/yarn.lock ] && sed -i '' -n '/@app\/lib/,/^$$$$/!p' $1/yarn.lock
 	@# TODO: add nested crosslinks to package.json
 	cd $1 && yarn --mutex file install
