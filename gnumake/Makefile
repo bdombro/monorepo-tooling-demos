@@ -59,7 +59,7 @@ clean:
 	rm -rf $(PKGS_DIR)/*/package.tgz
 
 # Create packages/{pkg}/package.tgz rules for each package
-$(foreach p,$(PKGS),$(call addPkgRule,$p))
+$(foreach PKG,$(PKGS),$(call addPkgRule,$PKG))
 
 %:
 	@make $(PKGS_DIR)/$@/package.tgz

@@ -8,4 +8,3 @@ build(
     visibility = ["//visibility:public"],
     srcs = DEPS + glob(["src/**"]) + ["tsconfig.json"]
 )
-

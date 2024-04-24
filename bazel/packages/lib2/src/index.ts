@@ -1,1 +1,1 @@
-export const lib2Var = "2";
+export const lib2Var = "2a";

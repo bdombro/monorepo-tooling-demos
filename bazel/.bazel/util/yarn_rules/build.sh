@@ -60,6 +60,7 @@ tar -zcf bundle.tgz $bundle
 
 # clear yarn cache for this package
 export pkgName=`jq -r '.name' package.json | tr -d '\n'`
+# TODO: rimrafing the cache may be faster than calling yarn clean {pkg}. Would need to test though.
 yarn cache clean $pkgName
 find `yarn cache dir`/.tmp -name package.json -exec grep -sl $pkgName {{}} \; \
   | xargs dirname | xargs rm -rf
