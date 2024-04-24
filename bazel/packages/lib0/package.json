@@ -19,6 +19,6 @@
     "typescript": "^5.3.3"
   },
   "bin": {
-    "lib0a-cli": "./bin/lib0-cli.js"
+    "lib0-cli": "./bin/lib0-cli.js"
   }
 }

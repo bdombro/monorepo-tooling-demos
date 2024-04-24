@@ -1,2 +1,2 @@
 # allow files to be included in srcs rules
-exports_files(["preinstall.ts", "prepack.ts"])
+exports_files(["build.sh", "preinstall.ts", "prepack.ts"])

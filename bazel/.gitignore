@@ -16,3 +16,4 @@ build.log
 .bazel/cache
 .bazel/gcp.json
 *.bak
+*.tgz

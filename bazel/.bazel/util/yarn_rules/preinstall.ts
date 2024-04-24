@@ -1,7 +1,10 @@
+import { exec } from "child_process";
+import { promisify } from "util";
 import { promises as fs } from "fs";
 import path from "path";
 
 /** Aliases for tighter code */
+const execP = promisify(exec);
 const O = Object;
 const P = Promise;
 type Dict<T> = Record<string, T>;
@@ -33,6 +36,26 @@ async function preinstall(pkg: Pkg) {
     await pkg.fixBaz();
     process.exit(1);
   }
+
+  // unpack dependencies
+  P.all(
+    O.keys(pkg.clTree).map(async (name) => {
+      const p = `${pkgsDir}/${name}`;
+      console.log(`unpacking ${p}/bundle.tgz`);
+      if (!(await fs.stat(`${p}/bundle.tgz`).catch(() => null))) {
+        console.error(
+          `ERROR: ${p}/bundle.tgz not found and is a dependent of ${pkg.basename}`
+        );
+        process.exit(1);
+      }
+      await P.all([
+        fs.unlink(`${p}/package.tgz`).catch(() => {}),
+        fs.rmdir(`${p}/dist`, { recursive: true }),
+        fs.rmdir(`${p}/build`, { recursive: true }),
+      ]).catch(() => {});
+      await execP(`tar -C ${p} -xzf ${p}/bundle.tgz`);
+    })
+  );
 
   // swap out the workspace:* (aka cls) with relative paths and add nested
   O.values(pkg.clTreeFlat).forEach((cl) => {
@@ -81,7 +104,7 @@ class Pkg {
     const bazDeps = O.keys(this.clTreeFlat);
     this.baz.text = this.baz.text.replace(
       this.baz.text.slice(this.baz.depsStartsAt, this.baz.depsEndsAt),
-      JSON.stringify(bazDeps.map((d) => `//packages/${d}:package.tgz`).sort())
+      JSON.stringify(bazDeps.map((d) => `//packages/${d}:bundle.tgz`).sort())
     );
     fs.writeFile(
       `${pkgsDir}/${this.basename}/BUILD.bazel`,
@@ -125,7 +148,7 @@ class Pkg {
     const bazTxt = (await P.all(_p)).at(-1);
 
     // baz = bazel BUILD.bazel file
-    // Find DEPS = ["//packages/lib1:package.tgz","//packages/lib3:package.tgz"]
+    // Find DEPS = ["//packages/lib1:bundle.tgz","//packages/lib3:bundle.tgz"]
     let bazDepsStartsAt = bazTxt.indexOf("DEPS = ");
     if (bazDepsStartsAt === -1) throw new Error("No DEPS found in BUILD.bazel");
     bazDepsStartsAt = bazDepsStartsAt + "DEPS = ".length;
@@ -134,7 +157,7 @@ class Pkg {
       bazTxt
         .slice(bazDepsStartsAt, bazDepsEndsAt)
         .replace(new RegExp("//packages/", "g"), "")
-        .replace(new RegExp(":package.tgz", "g"), "") || "[]"
+        .replace(new RegExp(":bundle.tgz", "g"), "") || "[]"
     );
     const bazMissing = O.keys(clTreeFlat).filter(
       (name) => !bazDeps.includes(name)

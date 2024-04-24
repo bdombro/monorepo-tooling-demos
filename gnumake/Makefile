@@ -1,10 +1,14 @@
+PKGS_DIR := packages
+PKGS := $(notdir $(wildcard $(PKGS_DIR)/*))
+
 .DEFAULT_GOAL := usage
 usage:
 	@echo "Usage: make -j4 <target>"
 	@echo "Targets:"
-	@echo "	all: Build all pkgs"
-	@echo "	clean: Remove generated output"
-	@echo "	<pkg>: Build a specific pkg"
+	@echo "  all: Build all pkgs"
+	@echo "  clean: Remove generated output"
+	@echo "  <pkg>: Build a specific pkg"
+	@echo "   --> $(PKGS)"
 
 define buildPkg
 	@echo "Building $1"
@@ -45,12 +49,8 @@ $(PKGS_DIR)/$1/package.tgz: $(shell find $(PKGS_DIR)/$1/src -type f)
 )
 endef
 
-PKGS_DIR := packages
-pkgs := $(notdir $(wildcard $(PKGS_DIR)/*))
-
-all: $(pkgs)
-	@echo "Building all: $(pkgs)"
-	$(foreach p,$(pkgs),$(eval make $p))
+all: $(PKGS)
+	@echo "all done"
 
 clean:
 	rm -rf $(PKGS_DIR)/*/node_modules/@app
@@ -59,7 +59,7 @@ clean:
 	rm -rf $(PKGS_DIR)/*/package.tgz
 
 # Create packages/{pkg}/package.tgz rules for each package
-$(foreach p,$(pkgs),$(call addPkgRule,$p))
+$(foreach p,$(PKGS),$(call addPkgRule,$p))
 
 %:
 	@make $(PKGS_DIR)/$@/package.tgz

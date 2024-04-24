@@ -4,7 +4,7 @@
 
 "@slimr/util@^2.0.0":
   version "2.2.8"
-  resolved "https://registry.yarnpkg.com/@slimr/.bezel/util/-/util-2.2.8.tgz#d2677b66f068be62de70d3e0ca969319311fd388"
+  resolved "https://registry.yarnpkg.com/@slimr/util/-/util-2.2.8.tgz#d2677b66f068be62de70d3e0ca969319311fd388"
   integrity sha512-JmPOQ2sDrXODz3S7Jlcdh5pHiEBAVjdavpNYlKdV2Y+vOsJKacMHOJSJRNIWgB5NS+V7anRPXWclhGfMueKvJQ==
   dependencies:
     deep-object-diff "1.1.9"

@@ -15,3 +15,5 @@ build --symlink_prefix=.bazel/bazel-
 build --remote_cache=https://storage.googleapis.com/od-bazel-cache-test
 build --google_credentials=.bazel/gcp.json
 build --disk_cache=.bazel/cache
+
+# build --test_env=DB_TEST_URL

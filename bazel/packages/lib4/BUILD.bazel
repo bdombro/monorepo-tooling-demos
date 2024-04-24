@@ -1,7 +1,7 @@
-load("//.bezel/util/yarn_rules:defs.bzl", "build")
+load("//.bazel/util/yarn_rules:defs.bzl", "build")
 
 # AUTO-GENERATED
-DEPS = ["//packages/lib1:package.tgz","//packages/lib2:package.tgz","//packages/lib3:package.tgz"]
+DEPS = ["//packages/lib1:bundle.tgz","//packages/lib2:bundle.tgz","//packages/lib3:bundle.tgz"]
 
 build(
     name = "build",

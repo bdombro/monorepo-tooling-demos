@@ -1,13 +1,15 @@
+PKGS_DIR := packages
+PKGS := $(notdir $(wildcard $(PKGS_DIR)/*))
+
 .DEFAULT_GOAL := usage
 usage:
 	@echo "Usage: make <target>"
 	@echo "Targets:"
-	@echo "  all: Build all pkgs"
+	@echo "  all: Build all PKGS"
 	@echo "  clean: Remove generated output in packages/*/[pkg]"
 	@echo "  clean-hard: Everything we've touched
 	@echo "  <pkg>: Build a specific pkg"
-
-PKGS_DIR := packages
+	@echo "   --> $(PKGS)"
 
 all:
 	@make install
@@ -26,11 +28,16 @@ install:
 
 clean:
 	rm -rf .bazel/bazel-* .bazel/cache
-	@# rm -rf $(PKGS_DIR)/*/node_modules
-	rm -rf $(PKGS_DIR)/*/node_modules/@app
+	rm -rf $(PKGS_DIR)/*/node_modules
 	rm -rf $(PKGS_DIR)/*/dist
 	rm -rf $(PKGS_DIR)/*/build
+	rm -rf $(PKGS_DIR)/*/package.json.bak
 	rm -rf $(PKGS_DIR)/*/package.tgz
+	rm -rf $(PKGS_DIR)/*/bundle.tgz
+	yarn cache clean $(foreach PKG,$(PKGS),@app/$(PKG))
+
+b:
+	git rm -f $(PKGS_DIR)/*/bundle.tgz
 
 clean-hard:
 	sudo rm -rf /private/var/tmp/_bazel_`whoami`
