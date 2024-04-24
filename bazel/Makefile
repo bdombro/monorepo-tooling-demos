@@ -11,7 +11,7 @@ PKGS_DIR := packages
 
 all:
 	@make install
-	bazel build //packages/react-app:build --explain=build.log --verbose_failures
+	bazel build //packages/react-app:build
 
 install:
 	@if [ ! -n "$$(command -v yarn)" ]; then echo "yarn not ready"; exit 1; fi;
@@ -25,8 +25,7 @@ install:
 	@ln -s $(PWD) ~/bazel
 
 clean:
-	rm -rf .bazel
-	rm -rf bazel-*
+	rm -rf .bazel/bazel-* .bazel/cache
 	@# rm -rf $(PKGS_DIR)/*/node_modules
 	rm -rf $(PKGS_DIR)/*/node_modules/@app
 	rm -rf $(PKGS_DIR)/*/dist

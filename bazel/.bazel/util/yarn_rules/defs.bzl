@@ -104,10 +104,12 @@ def build(
     srcs = [
         "package.json", "yarn.lock",
         "//:.tool-versions",
-        "//rules/yarn_rules:preinstall.ts", "//rules/yarn_rules:prepack.ts",
+        "//util/yarn_rules:preinstall.ts", "//util/yarn_rules:prepack.ts",
     ] + srcs
     outs = [out for out in outs if out != "package.tgz"]
     outs = ["package.tgz"] + outs
+    outs = [out for out in outs if out != "bundle.tgz"]
+    outs = ["bundle.tgz"] + outs
     _build(
         name = name,
         srcs = srcs,
