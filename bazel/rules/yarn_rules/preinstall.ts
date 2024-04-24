@@ -28,13 +28,11 @@ async function preinstall(pkg: Pkg) {
     console.error("You need to update your BUILD.bazel file with:");
     console.error(pkg.baz.dirty.join("\n"));
     console.error(
-      "We corrected it for you, but you'll need to re-start this build"
+      "We tried to correct it for you, and you'll need to re-start this build"
     );
     await pkg.fixBaz();
     process.exit(1);
   }
-
-  if (1) process.exit();
 
   // swap out the workspace:* (aka cls) with relative paths and add nested
   O.values(pkg.clTreeFlat).forEach((cl) => {
@@ -60,6 +58,13 @@ async function preinstall(pkg: Pkg) {
 class Pkg {
   constructor(
     public basename: string,
+    public baz: {
+      text: string;
+      depsStartsAt: number;
+      depsEndsAt: number;
+      deps: string[];
+      dirty: string[];
+    },
     public clTreeFlat: Dict<Pkg>,
     public clTree: Dict<Pkg>,
     public json: {
@@ -68,24 +73,19 @@ class Pkg {
       devDependencies: Dict<string>;
       peerDependencies: Dict<string>;
     },
-    public baz: {
-      txt: string;
-      depsStartsAt: number;
-      depsEndsAt: number;
-      deps: string[];
-      dirty: string[];
-    }
+    public text: string
   ) {}
 
+  /** Fixes a broken BUILD.bazel */
   fixBaz = async () => {
-    const bazDeps = O.keys(this.clTree);
-    this.baz.txt = this.baz.txt.replace(
-      this.baz.txt.slice(this.baz.depsStartsAt, this.baz.depsEndsAt),
-      JSON.stringify(bazDeps.map((d: string) => `//packages/${d}:package.tgz`))
+    const bazDeps = O.keys(this.clTreeFlat);
+    this.baz.text = this.baz.text.replace(
+      this.baz.text.slice(this.baz.depsStartsAt, this.baz.depsEndsAt),
+      JSON.stringify(bazDeps.map((d) => `//packages/${d}:package.tgz`).sort())
     );
     fs.writeFile(
       `${pkgsDir}/${this.basename}/BUILD.bazel`,
-      this.baz.txt,
+      this.baz.text,
       "utf8"
     );
   };
@@ -99,7 +99,7 @@ class Pkg {
 
   /** Gets a package obj relative to the current dir */
   static getPkg = cachify(async (pkgBasename: string) => {
-    const json = await Pkg.getPkgJson(pkgBasename);
+    const { json, text } = await Pkg.getPkgJson(pkgBasename);
 
     const clTree: Pkg["clTree"] = {};
     const clTreeFlat: Pkg["clTreeFlat"] = {};
@@ -144,23 +144,25 @@ class Pkg {
     );
     const bazDirty = [
       ...bazExtras.map((b) => `-${b}`),
-      ...bazMissing.map((b) => `-${b}`),
+      ...bazMissing.map((b) => `+${b}`),
     ];
-
-    const pkg = new Pkg(pkgBasename, clTreeFlat, clTree, json, {
-      txt: bazTxt,
+    const baz: PkgType["baz"] = {
+      text: bazTxt,
       depsStartsAt: bazDepsStartsAt,
       depsEndsAt: bazDepsEndsAt,
       deps: bazDeps,
       dirty: bazDirty,
-    });
+    };
+
+    const pkg = new Pkg(pkgBasename, baz, clTreeFlat, clTree, json, text);
     return pkg;
   });
 
   static getPkgJson = cachify(async (shortName: string) => {
     const path = `${pkgsDir}/${shortName}/package.json`;
-    const json: PkgType["json"] = JSON.parse(await fs.readFile(path, "utf8"));
-    return json;
+    const text = await fs.readFile(path, "utf8");
+    const json: PkgType["json"] = JSON.parse(text);
+    return { json, text };
   });
 }
 type PkgType = InstanceType<typeof Pkg>;
@@ -178,5 +180,11 @@ function cachify<T extends (...args: any) => Promise<any>>(fn: T) {
 const startWithDir = process.argv[2] ?? process.cwd();
 const startWithName = path.basename(startWithDir);
 const pkgsDir = path.dirname(startWithDir);
-const startWithPkg = await Pkg.getPkg(startWithName);
-await preinstall(startWithPkg);
+try {
+  const startWithPkg = await Pkg.getPkg(startWithName);
+  await preinstall(startWithPkg);
+} catch (e) {
+  console.error("Unhandled error in preinstall.ts");
+  console.error(e);
+  process.exit(1);
+}

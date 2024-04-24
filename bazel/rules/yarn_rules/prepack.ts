@@ -1,7 +1,7 @@
 /**
  * Remove crosslinks from package.json's dependencies
  */
-const fs = require("fs");
+import fs from "fs";
 const js = JSON.parse(fs.readFileSync("package.json", "utf8"));
 const rm = (deps: Record<string, string> = {}) =>
   Object.entries(deps)

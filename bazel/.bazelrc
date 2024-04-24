@@ -1,1 +1,13 @@
+# enables bzl modules
 common --enable_bzlmod
+
+# set default build params
+# 1. Don't use sandboxes. This allows us act on our real src code dirs
+build --spawn_strategy=standalone
+# 2. MOre logging on failures
+build --verbose_failures
+# 3. Logging no why the builder does what it does
+build --explain=.bazel/build.log
+
+# Set the bazel synlink folder dirs
+build --symlink_prefix=.bazel/bazel-

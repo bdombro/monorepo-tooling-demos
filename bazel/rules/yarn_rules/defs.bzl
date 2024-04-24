@@ -4,15 +4,24 @@ def _impl_build(ctx):
     outs = ctx.outputs.outs
 
     cmd = """
+    set -e
+
+    if [ -z $localWsDir ]; then
+        mode=dev
+        wsDir=~/bazel # if set, is development mode and choose the local workspace over tmp
+        export PATH=~/.bun/bin:$PATH
+    else
+        mode=ci
+        wsDir=`pwd`
+    fi
     
-    wsDir=`pwd`
     pkgDir=$wsDir/`dirname {0}`
     pkgsDir=$wsDir/`dirname $pkgDir`
     rulesDir=$wsDir/rules
     yarnRulesDir=$rulesDir/yarn_rules
     preinstallTs=$yarnRulesDir/preinstall.ts
     prepackTs=$yarnRulesDir/prepack.ts
-
+    
     echo pkgDir: $pkgDir
 
     out=`pwd`/{1}
@@ -30,11 +39,9 @@ def _impl_build(ctx):
     # 2. upsert cls (incl nested) as ../[pkg]/package.tgz to package.json
     cp package.json package.json.bak
     bun $preinstallTs
-    cat package.json | grep "@app"
 	
     # Install and build
     echo "yarn install $pkgDir"
-    # TODO: How to handle when we need lockfile changes
     yarn install --mutex file
     echo "yarn build $pkgDir"
     yarn build
@@ -96,7 +103,8 @@ def build(
     srcs = [src for src in srcs if src != "package.json" and src != "yarn.lock"]
     srcs = [
         "package.json", "yarn.lock",
-        "//:.tool-versions", "//rules/yarn_rules:preinstall.ts", "//rules/yarn_rules:prepack.ts"
+        "//:.tool-versions",
+        "//rules/yarn_rules:preinstall.ts", "//rules/yarn_rules:prepack.ts",
     ] + srcs
     outs = [out for out in outs if out != "package.tgz"]
     outs = ["package.tgz"] + outs
