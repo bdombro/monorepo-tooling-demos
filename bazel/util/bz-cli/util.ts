@@ -73,13 +73,16 @@ export const pAll: typeof Promise.all = async (
  * always pass a real Error, otherwise the stack trace will have throwError
  */
 export const stepErr = (e: any, step: string, extra: Dict<string> = {}) => {
-  return O.assign(e, { step: `${step}:${e?.step}`, ...extra });
+  return O.assign(e, {
+    step: `${step}${e?.step ? `:${e?.step}` : ""}`,
+    ...extra,
+  });
 };
 /** Convenient to .catch */
 export const stepErrCb =
   (step: string, extra: Dict<string> = {}) =>
   (e: any) => {
-    O.assign(e, { step: `${step}:${e?.step}`, ...extra });
+    O.assign(e, { step: `${step}${e?.step ? `:${e?.step}` : ""}`, ...extra });
     throw e;
   };
 /**
@@ -87,7 +90,7 @@ export const stepErrCb =
  * always pass a real Error, otherwise the stack trace will have throwError
  */
 export const throwStepErr = (e: any, step: string) => {
-  O.assign(e, { step: `${step}:${e?.step}` });
+  O.assign(e, { step: `${step}${e?.step ? `:${e?.step}` : ""}` });
   throw e;
 };
 
@@ -138,6 +141,29 @@ export const strCondense = (str: string): string =>
 export const throwErr = (error: any, ...extra: any): never => {
   throw O.assign(error, extra);
 };
+
+export class Bazel {
+  /**
+   * traverse the directory tree from __dirname to find the nearest WORKSPACE.bazel
+   * file and return the path
+   */
+  static findNearestWsRootNoCache = async (startFrom = process.cwd()) => {
+    log4("findNearestWsRoot->start");
+    let root = startFrom;
+    while (true) {
+      const ws = await fs.getC(`${root}/WORKSPACE.bazel`).catch(() => {});
+      if (ws) break;
+      const next = pathNode.resolve(root, "..");
+      if (next === root) {
+        throw stepErr(Error("No WORKSPACE.bazel found"), "findNearestWsRoot");
+      }
+      root = next;
+    }
+    log4(`findNearestWsRoot->${root}`);
+    return root;
+  };
+  static findNearestWsRoot = cachify(Bazel.findNearestWsRootNoCache);
+}
 
 /** Filesystem (aka fs) - helpers */
 export class fs {
@@ -240,6 +266,7 @@ export class fs {
         await fs.writeFile(path, text);
         log5(`fs.get->reset-success ${path}`);
       },
+      save: async () => fs.writeFile(path, file.text),
       set: (newText: string) => fs.writeFile(path, newText),
       text,
     };
@@ -497,23 +524,21 @@ export class sh {
     let execP = Promise.withResolvers<string>();
 
     let allout = "";
-    let stdout = "";
-    let stderr = "";
     const execLog = (text: string, type: "stdout" | "stderr") => {
       let out = strCondense(text);
       if (!out) return;
-      allout += out;
-      if (type === "stdout") stdout += out;
-      if (type === "stderr") stderr += out;
+      allout += out + "\n";
       // let outPrefix = `stdout:`;
       // if (out.length > maxStdOutLen) {
       //   out = out.slice(0, maxStdOutLen) + "...";
       //   outPrefix += " (trimmed)";
       // }
-      if (rawOutput) return text;
-      out
-        .split("\n")
-        .forEach((l) => _log3(`${lctx} ${l.replace(cwdExp, "wd:")}`));
+      if (rawOutput) log0(text);
+      else
+        out
+          .split("\n")
+          .map((l) => l.replace(cwdExp, "wd:"))
+          .forEach((l) => _log3(`${lctx} ${l}`));
     };
 
     const cp = childProcessNode.spawn(cmdFinal, { shell: true });
@@ -550,6 +575,7 @@ export class sh {
 export class Log {
   static file = `${fs.tmpDir}/run.log`;
   public prefix: string;
+  public forceHideTs: boolean;
 
   constructor(
     options: {
@@ -558,6 +584,7 @@ export class Log {
   ) {
     const { prefix } = options;
     this.prefix = prefix ?? "";
+    this.forceHideTs = false;
   }
 
   /**
@@ -603,7 +630,7 @@ export class Log {
         if (logLevel > 4) {
           argsExtra.unshift(`L${n}`);
         }
-        if (!UTIL_ENV.ci) {
+        if (!UTIL_ENV.ci && !this.forceHideTs) {
           argsExtra.unshift(tsNoYear);
         }
         console.log(...argsExtra);

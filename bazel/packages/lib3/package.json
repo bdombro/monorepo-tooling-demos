@@ -6,7 +6,7 @@
     "build": "echo yarn v$(yarn -v) && tsc",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
-    "watch": "tsc --watch"
+    "start": "tsc --watch"
   },
   "license": "ISC",
   "dependencies": {

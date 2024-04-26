@@ -8,22 +8,22 @@
       "type": "bun",
       "internalConsoleOptions": "neverOpen",
       "request": "launch",
-      "name": "bz-cli:build",
-      "program": "util/bz-cli/bz-cli.ts",
-      "cwd": "${workspaceFolder}",
+      "name": "bz-cli",
+      "program": "${workspaceFolder}/util/bz-cli/bz-cli.ts",
+      "cwd": "${workspaceFolder}/packages/react-app",
       "stopOnEntry": false,
       "watchMode": false,
       "env": {
-        "LOG": "4"
+        "LOG": "1"
       },
-      "args": ["bootstrap", "react-app"]
+      "args": ["watch", "."]
     },
     {
       "type": "bun",
       "internalConsoleOptions": "neverOpen",
       "request": "launch",
-      "name": "pkg-cli:build",
-      "program": "util/bz-cli/pkg-cli.ts",
+      "name": "pkg-cli",
+      "program": "${workspaceFolder}/util/bz-cli/pkg-cli.ts",
       "cwd": "${workspaceFolder}",
       "stopOnEntry": false,
       "watchMode": false,

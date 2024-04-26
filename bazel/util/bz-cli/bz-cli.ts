@@ -1,7 +1,11 @@
 #!/usr/bin/env bun
 /**
- * bz - A bazel JS monorepo cli tool that bootstraps and builds a JS application in a monorepo, with
- * careful handling of crosslinks to mimic the install behavior of published npm pkgs.
+ * bz - A bazel JS monorepo cli tool orchestrates the building of and development of packages in
+ * a bazel monorepo, with careful handling of crosslinks to mimic the install behavior of npm
+ * published packages.
+ *
+ * bz orchestrates bazel for cache-assisted builds, and a companion tool pkg-cli for bootstrapping,
+ * building, and developing a packages.
  *
  * Motivation:
  *   1. Existing monorepo tools mismanage crosslinks in a monorepo, by linking them via a basic symlink.
@@ -20,17 +24,14 @@
  *   - symlink resolution conflict: if "libA" depends on lodash, and "libB" depends on lodash and
  *     "libA", nested libA will use it's own copy of lodash instead of libB's.
  *
- * Goal: De-conflict nested dependencies
- *
- * Assumptions:
- *  - This script is called from either the root of the monorepo, or from a pkg directory
- *  - The crosslinks of the pkg are already built and packed into pkg.tgz
+ * Goal: De-conflict nested dependencies with a great developer experience
  */
 import arg from "arg";
 import { dirname } from "path";
 import { fileURLToPath } from "url";
 import process from "process";
 import {
+  Bazel,
   cachify,
   Dict,
   fs,
@@ -48,7 +49,7 @@ import {
   Time,
   UTIL_ENV,
 } from "./util.js";
-import path from "path";
+import pathNode from "path";
 import { Pkg } from "./pkg-cli.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -60,7 +61,7 @@ const ENV = {
   user: process.env.USER,
 };
 
-const log = new Log({ prefix: "bz-cli:" });
+const log = new Log({ prefix: "bz:" });
 const log0 = log.l0;
 const log1 = log.l1;
 const log2 = log.l2;
@@ -87,6 +88,8 @@ build: build a package and it's dependencies
 clean: purge bazel+yarn caches, crosslinks in node_modules, build artifacts
 clean-bz: purge bazel caches
 clean-yarn-cache: purge yarn caches for packages
+cloud-cache-disable: disable cloud caching
+cloud-cache-enable: enable cloud caching
 install: check and install env deps. Also add bz-cli to /usr/local/bin
 sync: sync a package's crosslinks' to {package}/node_modules/{cl}
 watch: sync + watch for changes
@@ -95,8 +98,10 @@ watch: sync + watch for changes
   const args = arg({
     "--all": Boolean,
     "--ci": String,
+    /** Disable remote caching and purge local caches before build/bootstrapping */
     "--no-cache": Boolean,
     "--help": Boolean,
+    "--hide-timestamps": Boolean,
     "--loglevel": Number,
     "--verbose": arg.COUNT, // Counts the number of times --verbose is passed
     // the location of the workspace root (optional, will find on own)
@@ -117,11 +122,21 @@ watch: sync + watch for changes
     args["--loglevel"] ||
     (args["--verbose"] ?? 0) + 1;
 
+  if (args["--hide-timestamps"])
+    log.forceHideTs = logDefault.forceHideTs = true;
+
   const action = args._?.[0];
   if (!action) return console.log(usage);
 
+  const parsePkgNames = () => {
+    const pkgNames = args._.slice(1).map((n) =>
+      [".", "./"].includes(n) ? pathNode.basename(process.cwd()) : n
+    );
+    return pkgNames;
+  };
+
   try {
-    const wsRoot = args["--ws"] || (await findNearestWsRoot());
+    const wsRoot = args["--ws"] || (await Bazel.findNearestWsRoot());
     switch (action) {
       case "bootstrap": {
         const pkgName = args._?.[1];
@@ -134,7 +149,7 @@ watch: sync + watch for changes
       }
       case "build": {
         /** eventually maybe support mult pkgNames */
-        const pkgNames = args._.slice(1);
+        const pkgNames = parsePkgNames();
         if (!pkgNames?.length) return console.log(usage);
         if (pkgNames[0] === "all") {
           await buildAllPkgs(wsRoot, { noCache: args["--no-cache"] });
@@ -147,40 +162,59 @@ watch: sync + watch for changes
       }
       case "clean": {
         await cleanAll(wsRoot);
-        break;
+        return;
       }
       case "clean-bz": {
         await cleanBazelCache(wsRoot);
-        break;
+        return;
       }
       case "clean-yarn-cache": {
         await cleanYarnCache(wsRoot, await getPkgNamesC(wsRoot));
-        break;
+        return;
+      }
+      case "cloud-cache-disable": {
+        const c = await getBazelConfig(wsRoot);
+        await c.setCloudCacheEnabled(false);
+        return;
+      }
+      case "cloud-cache-enable": {
+        const c = await getBazelConfig(wsRoot);
+        await c.setCloudCacheEnabled(true);
+        return;
       }
       case "install": {
         await installEnvDepsC(wsRoot);
         break;
       }
       case "sync": {
-        const pkgName = args._?.[1];
+        const pkgName = parsePkgNames()?.[0];
         if (!pkgName) return console.log(usage);
-        const pkg = await Pkg.getPkg(`${wsRoot}/packages/${pkgName}`);
+        const pkg = await Pkg.getPkgC(`${wsRoot}/packages/${pkgName}`);
         await pkg.syncCrosslinks();
         break;
       }
       case "watch": {
-        const pkgName = args._?.[1];
+        const pkgName = parsePkgNames()?.[0];
         if (!pkgName) return console.log(usage);
-        const pkg = await Pkg.getPkg(`${wsRoot}/packages/${pkgName}`);
+        log.forceHideTs = logDefault.forceHideTs = true;
+        log1(`bz:watch->${pkgName}`);
+        const pkg = await Pkg.getPkgC(`${wsRoot}/packages/${pkgName}`);
         await pkg.syncCrosslinks({ watch: true });
+        await sh.exec(`yarn start`, { wd: pkg.pathAbs, rawOutput: true });
+        await sh.sleep(Infinity);
         break;
       }
       default:
         return console.log(usage);
     }
-  } catch (e) {
+  } catch (e: any) {
+    log1(e);
+    log1(`BZ:ERROR! STEP=${e?.step ?? "unknown"}`);
+    log1(`BZ:ERRORJSON->${str(e)}`);
+    log1(`BZ:ERROR->${str({ ...e, stack: e.stack.split("\n") }, 2)}`);
+    log1(e.stack);
     console.log("Full-log:", Log.file);
-    throw e;
+    process.exit();
   }
 
   console.log("\nFull-log:", Log.file);
@@ -219,7 +253,7 @@ export const build = async (
   await installEnvDepsC(wsRoot);
   if (noCache) await cleanBazelCache(wsRoot);
   const wsRootForBzl = ENV.ci ? "" : wsRoot;
-  const stdout = await sh.exec(
+  await sh.exec(
     `bazel build //packages/${pkgBasename}:build ` +
       `--define ci=true ` +
       `--define loglevel=${ENV.logLevel} ` +
@@ -304,24 +338,26 @@ export const cleanYarnCache = async (wsRoot: string, names: string[]) => {
   ]);
   log4("cleanYarnCache->end");
 };
-/**
- * traverse the directory tree from __dirname to find the nearest WORKSPACE.bazel
- * file and return the path
- */
-export const findNearestWsRoot = async () => {
-  log4("findNearestWsRoot->start");
-  let root = __dirname;
-  while (true) {
-    const ws = await fs.getC(`${root}/WORKSPACE.bazel`).catch(() => {});
-    if (ws) break;
-    const next = path.resolve(root, "..");
-    if (next === root) {
-      throw stepErr(Error("No WORKSPACE.bazel found"), "findNearestWsRoot");
-    }
-    root = next;
-  }
-  log4(`findNearestWsRoot->${root}`);
-  return root;
+
+export const getBazelConfig = async (wsRoot: string) => {
+  const config = await fs.getC(`${wsRoot}/.bazelrc`);
+  if (!config) throw stepErr(Error("No .bazelrc found"), "getBazelConfig");
+  return {
+    ...config,
+    setCloudCacheEnabled: async (enabled: boolean) => {
+      // build --remote_cache=https://storage.googleapis.com/od-bazel-cache-test
+      if (enabled) {
+        config.text = config.text.replace(/# (build --remote_cache=.*)/, "$1");
+      } else {
+        config.text = config.text.replace(
+          /\n(build --remote_cache=.*)/,
+          `\n# $1`
+        );
+      }
+      await config.save();
+      log1(`setCloudCacheEnabled->${enabled}`);
+    },
+  };
 };
 
 export const getPkgNames = async (wsRoot: string) => {

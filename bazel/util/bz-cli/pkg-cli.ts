@@ -3,6 +3,12 @@
  * pkg-cli - A monorepo cli tool that bootstraps and builds a JS application in a monorepo, with
  * careful handling of crosslinks to mimic the install behavior of published npm packages.
  *
+ * pkg-cli is a companion to bz-cli, which is a monorepo cli tool to orchestrate pkg-cli and the
+ * bazel build manager to build multiple packages in a crosslink-intelligent way. Where pkg-cli
+ * only handles the bootstrapping and building of a single package and assumes cross-link dep
+ * build artifacts are already ready and built, bz-cli handles the topological build for both
+ * a package and all it's dependents in a cache-assisted way.
+ *
  * Motivation:
  *   1. Existing monorepo tools mismanage crosslinks in a monorepo, by linking them via a basic symlink.
  *     This causes many issues, such as:
@@ -28,7 +34,9 @@
  */
 import arg from "arg";
 import chokidar from "chokidar";
+import pathNode from "path";
 import {
+  Bazel,
   cachify,
   Dict,
   fs,
@@ -51,7 +59,7 @@ const ENV = {
   ci: process.env.CI === "1" ? true : false,
 };
 
-const log = new Log({ prefix: "pkg-cli:" });
+const log = new Log({ prefix: "pkg:" });
 const log0 = log.l0;
 const log1 = log.l1;
 const log2 = log.l2;
@@ -81,6 +89,7 @@ async function main() {
   const args = arg({
     "--ci": String,
     "--help": Boolean,
+    "--hide-timestamps": Boolean,
     "--loglevel": Number,
     "--verbose": arg.COUNT, // Counts the number of times --verbose is passed
 
@@ -98,12 +107,19 @@ async function main() {
     args["--loglevel"] ||
     (args["--verbose"] ?? 0) + 1;
 
+  if (args["--hide-timestamps"])
+    log.forceHideTs = logDefault.forceHideTs = true;
+
   let action = args._?.[0];
   if (!action) return console.log(usage);
 
   /** We don't support multple pkgs  */
-  const pkgPathOrBasename = args._?.[1];
+  let pkgPathOrBasename = args._?.[1];
   if (!pkgPathOrBasename) return console.log(usage);
+  if ([".", "./"].includes(pkgPathOrBasename))
+    pkgPathOrBasename = pathNode.basename(process.cwd());
+  if (pkgPathOrBasename.endsWith("/"))
+    pkgPathOrBasename = pkgPathOrBasename.slice(0, -1);
 
   log4(`pkg-cli->start: ${action} ${pkgPathOrBasename}`);
   log4(`pkg-cli->start: CI=${ENV.ci} logLevel=${ENV.logLevel}`);
@@ -126,14 +142,20 @@ async function main() {
       }
       case "watch": {
         await pkg.syncCrosslinks({ watch: true });
+        await sh.sleep(Infinity);
         break;
       }
       default:
         return console.log(usage);
     }
-  } catch (e) {
+  } catch (e: any) {
+    log1(e);
+    log1(`PKG:ERROR! STEP=${e?.step ?? "unknown"}`);
+    log1(`PKG:ERRORJSON->${str(e)}`);
+    log1(`PKG:ERROR->${str({ ...e, stack: e.stack.split("\n") }, 2)}`);
+    log1(e.stack);
     console.log("Full-log:", Log.file);
-    throw e;
+    process.exit(1);
   }
 
   console.log("\nFull-log:", Log.file);
@@ -375,7 +397,7 @@ export class Pkg {
       watch?: boolean;
     } = {}
   ) => {
-    const lctx = `Pkg.clSync->${this.json.name}`;
+    const lctx = `sync:${this.basename}`;
 
     const { verbose = true, watch = false } = options;
 
@@ -387,9 +409,12 @@ export class Pkg {
       _log1 = _log2 = _log3 = _log4 = log1;
     }
 
-    _log3(`${lctx}->start!`);
+    if (watch) {
+      log.forceHideTs = logDefault.forceHideTs = true;
+      _log1(`${lctx}->watch`);
+    } else _log1(`${lctx}->sync`);
 
-    const nestedNodeModules = `${this.pathRel}/node_modules`;
+    const nestedNodeModules = `${this.pathAbs}/node_modules`;
 
     // bail if there are no workspace deps
     if (!(await fs.stat(nestedNodeModules))) {
@@ -398,17 +423,29 @@ export class Pkg {
     }
 
     const pkgsToWatch = O.values(this.clTree);
+    const excludes = [
+      "BUILD.bazel",
+      "node_modules",
+      "package.tgz",
+      "tsconfig.json",
+      "yarn.lock",
+    ];
+    // console.log(this.clTree);
 
     const doSync = async () => {
       _log3(`${lctx}->syncing`);
       const delta = await P.all(
         pkgsToWatch.map(async (cl) => {
           if (await fs.stat(`${cl.pathAbs}`)) {
-            return sh.exec(
-              `rsync -av --delete --exclude=node_modules ${cl.pathRel}/ ` +
-                `${nestedNodeModules}/${cl.json.name}`,
-              { wd: this.pathWs, silent: true }
+            const res = await sh.exec(
+              `rsync ${cl.pathRel}/ ` +
+                `${nestedNodeModules}/${cl.json.name} ` +
+                `-av --delete ` +
+                excludes.map((e) => `--exclude=${e}`).join(" "),
+              { wd: this.pathWs, silent: !verbose }
             );
+            await fs.rm(`${nestedNodeModules}/.cache`);
+            return res;
           }
           return "";
         })
@@ -419,6 +456,7 @@ export class Pkg {
         .join("\n")
         .split("\n")
         .filter((l) => l.trim())
+        .filter((r) => !r.includes("..."))
         .filter((r) => !r.includes("created"))
         .filter((r) => !r.includes("done"))
         .filter((r) => !r.includes("./"))
@@ -427,6 +465,7 @@ export class Pkg {
       trimmed.forEach((l) => {
         if (verbose) _log1(`${lctx}: ${l} upserted`);
       });
+
       _log2(`${lctx}->synced ${trimmed.length} packages`);
       return trimmed;
     };
@@ -436,7 +475,7 @@ export class Pkg {
     if (watch) {
       const watcher = chokidar.watch([], {
         // FIXME: maybe don't sync whole folder
-        ignored: /(node_modules|package.tgz)/,
+        ignored: new RegExp(`(${excludes.join("|")})`),
         persistent: true,
       });
       watcher.on("change", () => doSync());
@@ -451,20 +490,36 @@ export class Pkg {
     _log4(`${lctx}:end`);
   };
 
-  /** Gets a package obj relative to the current dir */
+  /**
+   * Gets a package obj relative to the current dir
+   * please use the cachified version unless you really need fresh.
+   */
   static getPkg = async (pathOrbasename: string, includeDevDeps?: boolean) => {
     log4(`getPkg->${pathOrbasename}`);
     try {
       let pathAbs: string, pathRel: string, pathWs: string, basename: string;
-      if ([".", "./"].includes(pathOrbasename)) pathOrbasename = process.cwd();
-      if (pathOrbasename.includes("/")) {
+
+      // pathOrbasename = pathOrbasename.replace(new RegExp("(/|./|.)$", "g"), "");
+      pathOrbasename = pathOrbasename
+        .replace(/\.\/$/, "")
+        .replace(/\.$/, "")
+        .replace(/\/$/, "");
+
+      if (!pathOrbasename) pathOrbasename = process.cwd();
+
+      if (pathOrbasename.split("/").length === 2) {
+        basename = path.basename(pathOrbasename);
+        pathWs = await Bazel.findNearestWsRoot();
+        pathRel = `packages/${basename}`;
+        pathAbs = `${pathWs}/${pathRel}`;
+      } else if (pathOrbasename.includes("/")) {
         pathAbs = pathOrbasename;
         basename = path.basename(pathAbs);
         pathWs = path.dirname(path.dirname(pathAbs));
         pathRel = path.relative(pathWs, pathAbs);
       } else {
         basename = pathOrbasename;
-        pathWs = process.cwd();
+        pathWs = await Bazel.findNearestWsRoot();
         pathRel = `packages/${basename}`;
         pathAbs = `${pathWs}/${pathRel}`;
       }
@@ -496,7 +551,7 @@ export class Pkg {
 
       await P.all(_p);
 
-      const bazF = await fs.get(`${pathRel}/BUILD.bazel`);
+      const bazF = await fs.get(`${pathAbs}/BUILD.bazel`);
       const bazTxt = bazF.text;
 
       // baz = bazel BUILD.bazel file
@@ -546,11 +601,7 @@ export class Pkg {
       log3(`getPkg->done for ${basename}`);
       return pkg;
     } catch (e: any) {
-      log1(e);
-      log1(`PKG:ERROR! STEP=${e?.step ?? "unknown"}`);
-      log1(`PKG:ERRORJSON->${str(e)}`);
-      log1(e.stack);
-      throw e;
+      throw stepErr(e, "getPkg", { pathOrbasename });
     }
     // end getPkg
   };

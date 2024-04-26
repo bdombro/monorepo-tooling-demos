@@ -23,7 +23,7 @@
     "clean": "rm -rf build",
     "lint": "tsc",
     "test": "react-scripts test --watchAll=false",
-    "watch": "react-scripts start"
+    "start": "PORT=3001 react-scripts start"
   },
   "eslintConfig": {
     "extends": [
