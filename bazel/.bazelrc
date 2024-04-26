@@ -12,8 +12,8 @@ build --explain=.bazel/build.log
 # Set the bazel synlink folder dirs
 build --symlink_prefix=.bazel/bazel-
 
-# build --remote_cache=https://storage.googleapis.com/od-bazel-cache-test
 build --google_credentials=.bazel/gcp.json
+# build --remote_cache=https://storage.googleapis.com/od-bazel-cache-test
 build --disk_cache=.bazel/cache
 
 # build --test_env=DB_TEST_URL

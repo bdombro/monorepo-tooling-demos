@@ -1,4 +1,4 @@
-load("//.bazel/util/yarn_rules:defs.bzl", "build")
+load("//util/bz-cli:rules.bzl", "build")
 
 DEPS = []
 

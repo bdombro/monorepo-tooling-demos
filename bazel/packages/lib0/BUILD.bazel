@@ -1,4 +1,4 @@
-load("//.bazel/util/yarn_rules:defs.bzl", "build")
+load("//util/bz-cli:rules.bzl", "build")
 
 # AUTO-GENERATED
 DEPS = []
@@ -6,5 +6,5 @@ DEPS = []
 build(
     name = "build",
     visibility = ["//visibility:public"],
-    srcs = DEPS + glob(["src/**"]) + ["tsconfig.json"],
+    srcs = DEPS + glob(["src/**"]) + ["tsconfig.json"]
 )

@@ -1,5 +1,5 @@
 {
-  "name": "yarn_rules",
+  "name": "bz-cli",
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
@@ -11,6 +11,8 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@types/node": "^20.12.7"
+    "@types/node": "^20.12.7",
+    "arg": "^5.0.2",
+    "chokidar": "^3.6.0"
   }
 }

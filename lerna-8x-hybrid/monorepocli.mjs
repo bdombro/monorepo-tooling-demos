@@ -76,7 +76,7 @@ async function main(
 
   try {
     switch (action) {
-      case "build-deps": {
+      case "bootstrap": {
         const clb = new CrosslinkBuild(pkgName);
         res = await clb.run();
         break;

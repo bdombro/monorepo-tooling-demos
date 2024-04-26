@@ -1,11 +1,10 @@
 load("//util/bz-cli:rules.bzl", "build")
 
 # AUTO-GENERATED
-DEPS = ["//packages/lib1:package.tgz"]
+DEPS = []
 
 build(
     name = "build",
     visibility = ["//visibility:public"],
     srcs = DEPS + glob(["src/**"]) + ["tsconfig.json"],
 )
-

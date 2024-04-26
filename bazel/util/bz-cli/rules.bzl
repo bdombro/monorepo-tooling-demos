@@ -2,36 +2,42 @@
 def _impl_build(ctx):
     srcs = ctx.files.srcs
     outs = ctx.outputs.outs
+    cmdExtra = ctx.attr.cmd
+    
+    # you can set this var on cmd line via --define wsroot=/path/to/ws
+    # If set, it will be used as the workspace root for the build
+    wsroot = ctx.var.get("wsroot", "")
 
     cmd = """
     set -e
 
+    
+    export PATH=~/.bun/bin:$PATH
+
     pkgJsonSrcPathRel={0}
     tgzOutAbsRel={1}
+    wsroot={2}
 
-    localWsDirSymLink=~/bazel
-    if [ -L $localWsDirSymLink ]; then
+    if [ -n "$wsroot" ]; then
         echo "mode:dev"
         mode=dev
-        wsDir=~/bazel # if set, is development mode and choose the local workspace over tmp
-        export PATH=~/.bun/bin:$PATH
     else
         echo "mode:ci"
         mode=ci
-        wsDir=`pwd`
+        wsroot=`pwd`
     fi
 
     pkgDir=`dirname $pkgJsonSrcPathRel`
     pkgsDir=`dirname $pkgDir`
-    yarnRulesDir=.bazel/util/yarn_rules
-    buildSh=$yarnRulesDir/build.sh
-    preinstallTs=$yarnRulesDir/preinstall.ts
-    prepackTs=$yarnRulesDir/prepack.ts
+    bzCliDir=util/bz-cli
+    pkgTs=$bzCliDir/pkg-cli.ts
     tgzOut=`pwd`/$tgzOutAbsRel
 
-    bash $buildSh $wsDir $pkgDir $tgzOut $preinstallTs $prepackTs
+    LOG=5 bun $pkgTs build $wsroot/$pkgDir
+
+    cp $pkgDir/package.tgz $tgzOut
     
-    """.format(srcs[0].path, outs[0].path)+ ctx.attr.cmd
+    """.format(srcs[0].path, outs[0].path, wsroot)+ cmdExtra
 
     ctx.actions.run_shell(
         use_default_shell_env = True,
@@ -54,9 +60,7 @@ _build = rule(
         "cmd": attr.string(default=""),
     },
     doc = """
-    
-    Prepares a package for packing
-    Builds a package using yarn and packs it into a tarball.
+Builds a package using yarn and packs it into a tarball.
 """,
 )
 
@@ -72,10 +76,10 @@ def build(
     srcs = [
         "package.json", "yarn.lock",
         "//:.tool-versions",
-        "//.bazel/util/yarn_rules:build.sh", "//.bazel/util/yarn_rules:preinstall.ts", "//.bazel/util/yarn_rules:prepack.ts",
+        "//util/bz-cli:pkg-cli.ts",
     ] + srcs
-    outs = [out for out in outs if out != "bundle.tgz"]
-    outs = ["bundle.tgz"] + outs
+    outs = [out for out in outs if out != "package.tgz"]
+    outs = ["package.tgz"] + outs
     _build(
         name = name,
         srcs = srcs,
