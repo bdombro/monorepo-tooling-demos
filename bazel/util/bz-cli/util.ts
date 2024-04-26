@@ -1,38 +1,12 @@
-#!/usr/bin/env node
-/**
- * monorepocli (aka mrc) - A monorepo cli tool that links internal packages like npm packages
- *
- * Motivation:
- *   1. Existing monorepo tools mismanage crosslinks in a monorepo, by linking them via a basic symlink.
- *     This causes many issues, such as:
- *     1. deeply nested node_modules folders
- *     2. devDependencies of the crosslinks being installed
- *     3. dependencies being in diff places vs if installed as an npm package
- *     4. symlink issues todo with the way that node resolves modules
- *   2. Existing monorepo tools don't allow for each package to have it's own package manager and lock
- *      file, which dramatically decreases flexibility, while dramatically increasing cost of adoption
- *
- *   Example crosslink conflicts in existing tools:
- *   - a React app may have deps that have devDeps with diff version of React. This causes typescript
- *     and bundlers to include multiple versions of React, which blows up the bundle size,
- *     causes runtime errors, and typescript errors.
- *   - symlink resolution conflict: if "libA" depends on lodash, and "libB" depends on lodash and
- *     "libA", nested libA will use it's own copy of lodash instead of libB's.
- *
- * Goal: De-conflict nested dependencies
- *
- * Assumptions:
- *  - This script is called from somewhere inside a monorepocli monorepo
- *  - The ws root has a monorepocli.conf.js field
- *  - Workspace packages have a name field with a domain, ie @app/packageName
- *  - ws packages don't use postinstall or postbuild scripts
- */
-import { exec as cpExec } from "child_process";
+#!/usr/bin/env bun
+
+import childProcessNode from "child_process";
 import { promises as fsNode } from "fs";
 import pathNode from "path";
 import util from "util";
 
 export const UTIL_ENV = {
+  ci: process.env.CI === "1" ? true : false,
   logLevel: Number(process.env.LOG ?? 1),
   semiDry: Number(process.env.DRY),
 };
@@ -429,7 +403,7 @@ export class fs {
       .replace(/(\-|T|:)/g, ".");
   static tmpDirCreate = cachify(async () => {
     return util
-      .promisify(cpExec)(`mkdir -p ${fs.tmpDir}`)
+      .promisify(childProcessNode.exec)(`mkdir -p ${fs.tmpDir}`)
       .catch((e) => {
         throw stepErr(e, `fs.tmpDirCreate`);
       });
@@ -469,7 +443,7 @@ export class fs {
 
 /** Shell / Process helpers aka sh */
 export class sh {
-  static _exec = util.promisify(cpExec);
+  static _exec = util.promisify(childProcessNode.exec);
 
   static cmdExists = async (cmd: string) =>
     !!(await sh.exec(`command -v ${cmd}`, { throws: false }));
@@ -482,18 +456,16 @@ export class sh {
   static exec = async (
     cmd: string,
     options: {
-      mockStderr?: string;
-      mockStdout?: string;
+      rawOutput?: boolean;
       silent?: boolean;
       throws?: boolean;
       verbose?: boolean;
       /** working directory */
       wd?: string;
     } = {}
-  ) => {
+  ): Promise<string> => {
     const {
-      mockStderr = null,
-      mockStdout = null,
+      rawOutput = false,
       silent = false,
       throws = true,
       verbose = false,
@@ -512,101 +484,63 @@ export class sh {
     }
 
     const id = (sh.execCount = (sh.execCount ?? 0) + 1);
-    const lctx = `exec:${id}`;
+    const lctx = `sh.exec:${id}`;
 
     _log3(`${lctx} cmd='${cmd}'`);
     _log4(`${lctx} cwd=${wd}`);
 
-    const maxStdOutLen = 20000;
-
-    const mockExec = async () => {
-      const execR = {
-        code: 1,
-        killed: false,
-        signal: null,
-        stderr: mockStderr,
-        stdout: mockStdout,
-      };
-      if (mockStderr) {
-        throw O.assign(Error(mockStderr), execR);
-      }
-      return execR;
-    };
-
     const cwdExp = new RegExp(process.cwd(), "g");
 
-    const execOrMock =
-      UTIL_ENV.semiDry && (isStr(mockStdout) || isStr(mockStderr))
-        ? mockExec
-        : sh._exec;
-    const cmdWithCd = options.wd ? `cd ${wd} && ${cmd}` : cmd;
+    // const cmdFinal = (options.wd ? `cd ${wd} && ${cmd}` : cmd) + " 2>&1";
+    const cmdFinal = options.wd ? `cd ${wd} && ${cmd}` : cmd;
 
-    const execR = await execOrMock(cmdWithCd).catch((e) => {
-      if (!throws) return e;
+    let execP = Promise.withResolvers<string>();
 
-      let out = strCondense(e.stdout ?? "none");
-      let outFlags = "";
-      if (out.length > maxStdOutLen) {
-        out = out.slice(0, maxStdOutLen) + "...";
-        outFlags = "(trimmed)";
+    let allout = "";
+    let stdout = "";
+    let stderr = "";
+    const execLog = (text: string, type: "stdout" | "stderr") => {
+      let out = strCondense(text);
+      if (!out) return;
+      allout += out;
+      if (type === "stdout") stdout += out;
+      if (type === "stderr") stderr += out;
+      // let outPrefix = `stdout:`;
+      // if (out.length > maxStdOutLen) {
+      //   out = out.slice(0, maxStdOutLen) + "...";
+      //   outPrefix += " (trimmed)";
+      // }
+      if (rawOutput) return text;
+      out
+        .split("\n")
+        .forEach((l) => _log3(`${lctx} ${l.replace(cwdExp, "wd:")}`));
+    };
+
+    const cp = childProcessNode.spawn(cmdFinal, { shell: true });
+    cp.stdout.on("data", (data) => execLog(data.toString(), "stdout"));
+    cp.stderr.on("data", (data) => execLog(data.toString(), "stderr"));
+    cp.on("close", (code) => {
+      if (!allout) {
+        _log2(`${lctx} no output`);
       }
+      if (code) {
+        _log1(`${lctx} ERROR!`);
+        _log1(`${lctx} cmd='${cmd}'`);
+        _log1(`${lctx} wd=${wd}`);
+        _log1(`${lctx} code=${code}`);
 
-      let err = strCondense(e.stderr);
-      let errFlags = "";
-      if (err.length > maxStdOutLen) {
-        err = err.slice(0, maxStdOutLen) + "...";
-        errFlags = "(trimmed)";
+        const err = O.assign(Error(`${lctx}->nonzero-return`), {
+          cmd,
+          execId: id,
+          step: "exec",
+          workingDir: wd,
+        });
+        if (throws) execP.reject(err);
       }
-
-      _log1(
-        (
-          `ERROR!\n` +
-          `cmd='${cmd}'\n` +
-          `wd=${wd}\n\n` +
-          `stdout: ${outFlags}\n` +
-          `${out}\n\n\n` +
-          `stderr: ${errFlags}\n` +
-          `cmd='${cmd}'\n` +
-          `${err}\n\n\n` +
-          `context:\n` +
-          `cmd='${cmd}'\n` +
-          `wd=${wd}\n\n`
-        )
-          .split("\n")
-          .map((l) => `${lctx} ${l}`)
-      );
-
-      _log1(`${lctx}:end`);
-      const e2 = O.assign(Error(`${lctx}->nonzero-return`), {
-        cmd,
-        execId: id,
-        step: "exec",
-        workingDir: wd,
-      });
-      throw e2;
+      execP.resolve(allout);
     });
 
-    if (execR instanceof Error) {
-      _log4(`${lctx}:end->non-zero-return-skipped`);
-      return "";
-    }
-
-    let out = strCondense(execR.stdout ?? "none");
-    let outPrefix = `stdout:`;
-    if (out.length > maxStdOutLen) {
-      out = out.slice(0, maxStdOutLen) + "...";
-      outPrefix += " (trimmed)";
-    }
-
-    `${outPrefix}\n${out}`
-      .split("\n")
-      .forEach((l) => _log4(`${lctx} ${l.replace(cwdExp, "wd:")}`));
-    if (!out) {
-      _log4(`${lctx}>none`);
-    }
-
-    _log4(`${lctx}:end`);
-    return out;
+    return execP.promise;
   };
   static execCount = 0;
 
@@ -615,15 +549,38 @@ export class sh {
 
 export class Log {
   static file = `${fs.tmpDir}/run.log`;
+  public prefix: string;
 
-  /** determines how much logging is printed to the console. Higher is more. */
-  static logLevel = UTIL_ENV.logLevel;
+  constructor(
+    options: {
+      prefix?: string;
+    } = {}
+  ) {
+    const { prefix } = options;
+    this.prefix = prefix ?? "";
+  }
 
-  static logn(n: number) {
-    const logLevel = Log.logLevel;
+  /**
+   * reserved numbers:
+   * 0: don't decorate at all, like if were calling another library that has its
+   *    own logging decorations
+   * 9: don't print to console, only to log file
+   */
+  logn(n: number) {
     const logFnc = (...args: any) => {
+      /** determines how much logging is printed to the console. Higher is more. */
+      const logLevel = UTIL_ENV.logLevel;
+
       // This debug line helps find empty log calls
       // if ([...args].join("").trim() === "") console.trace();
+
+      if (n === 0) {
+        console.log(...args);
+        fs.tmpDirCreate().then(() => {
+          fsNode.appendFile(Log.file, args.join(" ") + "\n");
+        });
+        return args;
+      }
 
       // if first arg is an array, log each item in the array
       if (isArr(args[0])) {
@@ -631,19 +588,25 @@ export class Log {
         return;
       }
 
+      if (this.prefix) {
+        if (isStr(args[0])) args[0] = this.prefix + args[0];
+        else args.unshift(this.prefix);
+      }
+
       // ts = yyyy:hh:mm:ss:msms -> ie 2024:15:12:41.03
       const ts = new Date().toISOString().slice(0, -2);
 
       // skip logging to console if the log message level is higher than the log level
       if (logLevel >= n) {
-        if (logLevel <= 1) console.log(...args);
-        else {
-          const tsNoYear = ts.slice(11);
-          // prepend the log level to the log message
-          const argsExtra =
-            args[0] instanceof Error ? args : [tsNoYear, `L${n}`, ...args];
-          console.log(...argsExtra);
+        let argsExtra = args;
+        const tsNoYear = ts.slice(11);
+        if (logLevel > 4) {
+          argsExtra.unshift(`L${n}`);
         }
+        if (!UTIL_ENV.ci) {
+          argsExtra.unshift(tsNoYear);
+        }
+        console.log(...argsExtra);
       }
 
       // lazily log to file
@@ -676,32 +639,41 @@ export class Log {
     return logFnc;
     // end of logn
   }
-  static l1(...args: any) {
-    return Log.logn(1)(...args);
-  }
-  static l2(...args: any) {
-    return Log.logn(2)(...args);
-  }
-  static l3(...args: any) {
-    return Log.logn(3)(...args);
-  }
-  static l4(...args: any) {
-    return Log.logn(4)(...args);
-  }
-  static l5(...args: any) {
-    return Log.logn(5)(...args);
-  }
+  /**
+   * a special level that means don't decorate at all, like if were
+   * calling another library that has its own logging decorations
+   */
+  l0 = (...args: any) => {
+    return this.logn(0)(...args);
+  };
+  l1 = (...args: any) => {
+    return this.logn(1)(...args);
+  };
+  l2 = (...args: any) => {
+    return this.logn(2)(...args);
+  };
+  l3 = (...args: any) => {
+    return this.logn(3)(...args);
+  };
+  l4 = (...args: any) => {
+    return this.logn(4)(...args);
+  };
+  l5 = (...args: any) => {
+    return this.logn(5)(...args);
+  };
   /** High number that's used mainly to print to log file without console  */
-  static l9(...args: any) {
-    return Log.logn(9)(...args);
-  }
+  l9 = (...args: any) => {
+    return this.logn(9)(...args);
+  };
 }
-export const log1 = Log.l1;
-export const log2 = Log.l2;
-export const log3 = Log.l3;
-export const log4 = Log.l4;
-export const log5 = Log.l5;
-export const log9 = Log.l9;
+export const logDefault = new Log();
+export const log0 = logDefault.l0;
+export const log1 = logDefault.l1;
+export const log2 = logDefault.l2;
+export const log3 = logDefault.l3;
+export const log4 = logDefault.l4;
+export const log5 = logDefault.l5;
+export const log9 = logDefault.l9;
 
 export class Time {
   static diff = (start: number | Date, end?: number | Date) => {

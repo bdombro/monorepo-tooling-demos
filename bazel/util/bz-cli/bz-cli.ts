@@ -35,10 +35,7 @@ import {
   Dict,
   fs,
   Log,
-  log1,
-  log2,
-  log3,
-  log4,
+  logDefault,
   O,
   P,
   PReturnType,
@@ -63,6 +60,15 @@ const ENV = {
   user: process.env.USER,
 };
 
+const log = new Log({ prefix: "bz-cli:" });
+const log0 = log.l0;
+const log1 = log.l1;
+const log2 = log.l2;
+const log3 = log.l3;
+const log4 = log.l4;
+const log5 = log.l5;
+const log9 = log.l9;
+
 async function main() {
   const usage = `
 Usage:
@@ -79,7 +85,7 @@ Actions:
 bootstrap: bootstrap a package and build it's dependencies
 build: build a package and it's dependencies
 clean: purge bazel+yarn caches, crosslinks in node_modules, build artifacts
-clean-bazel-cache: purge bazel caches
+clean-bz: purge bazel caches
 clean-yarn-cache: purge yarn caches for packages
 install: check and install env deps. Also add bz-cli to /usr/local/bin
 sync: sync a package's crosslinks' to {package}/node_modules/{cl}
@@ -87,14 +93,13 @@ watch: sync + watch for changes
 `;
 
   const args = arg({
-    "--action": String,
     "--all": Boolean,
-    "--ci": Boolean,
+    "--ci": String,
     "--no-cache": Boolean,
     "--help": Boolean,
-    "--pkg": String,
-    "--pkgs": [String],
+    "--loglevel": Number,
     "--verbose": arg.COUNT, // Counts the number of times --verbose is passed
+    // the location of the workspace root (optional, will find on own)
     "--ws": String,
 
     // Aliases
@@ -103,46 +108,70 @@ watch: sync + watch for changes
     "-v": "--verbose",
   });
 
-  args["--action"] = args["--action"] || args?._[0];
+  if (args["--help"]) return console.log(usage);
 
-  if (!args["--action"] || args["--help"]) return console.log(usage);
+  ENV.ci = UTIL_ENV.ci =
+    args["--ci"] && ["1", "true"].includes(args["--ci"]) ? true : ENV.ci;
+  ENV.logLevel = UTIL_ENV.logLevel =
+    (ENV.logLevel > 1 && ENV.logLevel) ||
+    args["--loglevel"] ||
+    (args["--verbose"] ?? 0) + 1;
 
-  ENV.ci = args["--ci"] ? true : ENV.ci;
-  ENV.logLevel = args["--verbose"] ? args["--verbose"] + 1 : ENV.logLevel;
-  UTIL_ENV.logLevel = ENV.logLevel;
+  const action = args._?.[0];
+  if (!action) return console.log(usage);
 
   try {
     const wsRoot = args["--ws"] || (await findNearestWsRoot());
-    switch (args["--action"]) {
+    switch (action) {
       case "bootstrap": {
-        const names = args["--pkgs"] || args._.slice(1);
-        if (!names?.length) return console.log(usage);
+        const pkgName = args._?.[1];
+        if (!pkgName) return console.log(usage);
+        await build(wsRoot, pkgName, {
+          skipLastBuild: true,
+          noCache: args["--no-cache"],
+        });
         break;
       }
       case "build": {
-        const names =
-          args["--pkgs"] ||
-          (args["--pkg"] && [args["--pkg"]]) ||
-          args._.slice(1);
-        if (!names?.length) return console.log(usage);
-        if (names[0] === "all") {
+        /** eventually maybe support mult pkgNames */
+        const pkgNames = args._.slice(1);
+        if (!pkgNames?.length) return console.log(usage);
+        if (pkgNames[0] === "all") {
           await buildAllPkgs(wsRoot, { noCache: args["--no-cache"] });
         } else {
-          await buildPkg(wsRoot, names[0], { noCache: args["--no-cache"] });
+          await build(wsRoot, pkgNames[0], {
+            noCache: args["--no-cache"],
+          });
         }
         break;
       }
+      case "clean": {
+        await cleanAll(wsRoot);
+        break;
+      }
+      case "clean-bz": {
+        await cleanBazelCache(wsRoot);
+        break;
+      }
+      case "clean-yarn-cache": {
+        await cleanYarnCache(wsRoot, await getPkgNamesC(wsRoot));
+        break;
+      }
+      case "install": {
+        await installEnvDepsC(wsRoot);
+        break;
+      }
       case "sync": {
-        const name = args["--pkg"] || args._?.[1];
-        if (!name) return console.log(usage);
-        const pkg = await Pkg.getPkg(`${wsRoot}/packages/${name}`);
+        const pkgName = args._?.[1];
+        if (!pkgName) return console.log(usage);
+        const pkg = await Pkg.getPkg(`${wsRoot}/packages/${pkgName}`);
         await pkg.syncCrosslinks();
         break;
       }
       case "watch": {
-        const name = args["--pkg"] || args._?.[1];
-        if (!name) return console.log(usage);
-        const pkg = await Pkg.getPkg(`${wsRoot}/packages/${name}`);
+        const pkgName = args._?.[1];
+        if (!pkgName) return console.log(usage);
+        const pkg = await Pkg.getPkg(`${wsRoot}/packages/${pkgName}`);
         await pkg.syncCrosslinks({ watch: true });
         break;
       }
@@ -163,41 +192,63 @@ export const buildAllPkgs = async (
     noCache?: boolean;
   } = {}
 ) => {
-  log4("buildAllPkgs-start");
+  log4("buildAllPkgs->start");
+  const start = Date.now();
   const { noCache } = options;
   await installEnvDepsC(wsRoot);
   if (noCache) await cleanBazelCache(wsRoot);
-  const names = await getPkgNamesC(wsRoot);
-  for (const name of names.reverse()) {
-    await buildPkg(wsRoot, name);
+  const pkgBasenames = await getPkgNamesC(wsRoot);
+  for (const name of pkgBasenames.reverse()) {
+    await build(wsRoot, name);
   }
-  log4("buildAllPkgs-end");
+  log4(`buildAllPkgs->end ${Time.diff(start)}`);
 };
 
-export const buildPkg = async (
+export const build = async (
   wsRoot: string,
-  name: string,
+  pkgBasename: string,
   options: {
+    skipLastBuild?: boolean;
     noCache?: boolean;
   } = {}
 ) => {
-  log4("buildPkg-start", name);
-  const { noCache } = options;
+  const { skipLastBuild, noCache } = options;
+  let lctx = skipLastBuild ? "bootstrap" : "build";
+  log1(`${lctx}:start->${pkgBasename}`);
+  const start = Date.now();
   await installEnvDepsC(wsRoot);
   if (noCache) await cleanBazelCache(wsRoot);
   const wsRootForBzl = ENV.ci ? "" : wsRoot;
-  await sh.exec(
-    `bazel build //packages/${name}:build --define wsroot=${wsRootForBzl}`,
+  const stdout = await sh.exec(
+    `bazel build //packages/${pkgBasename}:build ` +
+      `--define ci=true ` +
+      `--define loglevel=${ENV.logLevel} ` +
+      `--define justBootstrapPkg=${skipLastBuild ? pkgBasename : ""} ` +
+      `--define wsroot=${wsRootForBzl} `,
     {
       wd: wsRoot,
+      verbose: true,
     }
   );
-  await restorePkgFromCache(wsRoot, name);
-  log4("buildPkg-end");
+  // stdout.split("\n").forEach((line) => {
+  //   if (
+  //     line.match(/\d\d:\d\d:\d\d.\d\d /) ||
+  //     line.includes("pkg-cli") ||
+  //     line.includes("sh.") ||
+  //     line.includes("fs.")
+  //   ) {
+  //     log0(line);
+  //   } else {
+  //     log1(line);
+  //   }
+  // });
+  await restorePkgFromCache(wsRoot, pkgBasename);
+  log1(`${lctx}->end ${Time.diff(start)}`);
 };
 
 export const cleanAll = async (wsRoot: string) => {
-  log4("cleanAll-start");
+  log4("cleanAll->start");
+  const start = Date.now();
   const pkgs = await getPkgNamesC(wsRoot);
   let domains = await P.all(
     pkgs.map(
@@ -222,21 +273,26 @@ export const cleanAll = async (wsRoot: string) => {
       ]);
     }),
   ]);
-  log4("cleanAll-end");
+  log4(`cleanAll->end ${Time.diff(start)}`);
 };
 
 export const cleanBazelCache = async (wsRoot: string) => {
-  log4("cleanBazelCache-start");
+  log4("cleanBazelCache->start");
+  const start = Date.now();
   await P.all([
     sh.exec("bazel clean --expunge"),
-    sh.exec(`rm -rf .bazel/bazel-* .bazel/cache`, { wd: wsRoot }),
-    sh.exec(`rm -rf /private/var/tmp/_bazel_${ENV.user}/*`),
+    fs.rm(`${wsRoot}/.bazel/bazel-bazel`),
+    fs.rm(`${wsRoot}/.bazel/bazel-bin`),
+    fs.rm(`${wsRoot}/.bazel/bazel-out`),
+    fs.rm(`${wsRoot}/.bazel/bazel-testlogs`),
+    fs.rm(`${wsRoot}/.bazel/cache`),
+    fs.rm(`/private/var/tmp/_bazel_brian.dombrowski/cache`),
   ]);
-  log4("cleanBazelCache-end");
+  log4(`cleanBazelCache->end ${Time.diff(start)}`);
 };
 
 export const cleanYarnCache = async (wsRoot: string, names: string[]) => {
-  log4("cleanYarnCache-start");
+  log4("cleanYarnCache->start");
   await P.all([
     ...names.map((name) => sh.exec(`yarn cache clean @app/${name}`)),
     sh.exec(
@@ -246,14 +302,14 @@ export const cleanYarnCache = async (wsRoot: string, names: string[]) => {
       { wd: wsRoot }
     ),
   ]);
-  log4("cleanYarnCache-end");
+  log4("cleanYarnCache->end");
 };
 /**
  * traverse the directory tree from __dirname to find the nearest WORKSPACE.bazel
  * file and return the path
  */
 export const findNearestWsRoot = async () => {
-  log4("findNearestWsRoot-start");
+  log4("findNearestWsRoot->start");
   let root = __dirname;
   while (true) {
     const ws = await fs.getC(`${root}/WORKSPACE.bazel`).catch(() => {});
@@ -280,16 +336,16 @@ export const getPkgNames = async (wsRoot: string) => {
 export const getPkgNamesC = cachify(getPkgNames);
 
 export const installEnvDeps = async (wsRoot: string) => {
-  log4("installEnvDeps-start");
+  log4("installEnvDeps->start");
   await P.all([
     sh.assertCmdExists("yarn"),
     sh.assertCmdExists("bazel"),
     sh.assertCmdExists("git"),
     sh.assertCmdExists("jq"),
     // TODO: Figure out why this isn't working
-    sh.cmdExists("bun").then(async (o) => {
-      !o && sh.exec(`curl -fsSL https://bun.sh/install | bash`);
-    }),
+    // sh.cmdExists("bun").then(async (o) => {
+    //   !o && sh.exec(`curl -fsSL https://bun.sh/install | bash`);
+    // }),
     sh.exec(`chmod +x ${__filename}; ln -sf ${__filename} /usr/local/bin/bz`),
     fs.copyFile(
       `${wsRoot}/.tool-versions`,
@@ -297,16 +353,16 @@ export const installEnvDeps = async (wsRoot: string) => {
       { skipBackup: true }
     ),
   ]);
-  log4("installEnvDeps-end");
+  log4("installEnvDeps->end");
 };
 export const installEnvDepsC = cachify(installEnvDeps);
 
 export const restorePkgFromCache = async (wsRoot: string, name: string) => {
-  log4("restorePkgFromCache-start", name);
+  log4("restorePkgFromCache->start", name);
   const srcDir = `${wsRoot}/packages/${name}`;
   const cacheDir = `${wsRoot}/.bazel/bazel-bin/packages/${name}`;
   await sh.exec(`rsync ${cacheDir}/package.tgz ${srcDir}/package.tgz`);
-  log4("restorePkgFromCache-end");
+  log4("restorePkgFromCache->end");
 };
 
 if (import.meta.url === `file://${process.argv[1]}`) {

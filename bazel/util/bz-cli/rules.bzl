@@ -4,9 +4,12 @@ def _impl_build(ctx):
     outs = ctx.outputs.outs
     cmdExtra = ctx.attr.cmd
     
-    # you can set this var on cmd line via --define wsroot=/path/to/ws
-    # If set, it will be used as the workspace root for the build
+    # you can set these vars on cmd line via --define wsroot=/path/to/ws
+    # wsroot: If set, it will be used as the workspace root for the build
     wsroot = ctx.var.get("wsroot", "")
+    ci = ctx.var.get("ci", "")
+    loglevel = ctx.var.get("loglevel", "5")
+    justBootstrapPkg = ctx.var.get("justBootstrapPkg", "")
 
     cmd = """
     set -e
@@ -14,15 +17,18 @@ def _impl_build(ctx):
     
     export PATH=~/.bun/bin:$PATH
 
-    pkgJsonSrcPathRel={0}
-    tgzOutAbsRel={1}
-    wsroot={2}
+    wsroot={0}
+    ci={1}
+    loglevel={2}
+    justBootstrapPkg={3}
+    pkgJsonSrcPathRel={4}
+    tgzOutRel={5}
 
     if [ -n "$wsroot" ]; then
-        echo "mode:dev"
+        echo "bz-cli-rules:mode->dev"
         mode=dev
     else
-        echo "mode:ci"
+        echo "bz-cli-rules:mode->:ci"
         mode=ci
         wsroot=`pwd`
     fi
@@ -31,17 +37,22 @@ def _impl_build(ctx):
     pkgsDir=`dirname $pkgDir`
     bzCliDir=util/bz-cli
     pkgTs=$bzCliDir/pkg-cli.ts
-    tgzOut=`pwd`/$tgzOutAbsRel
+    tgzOut=`pwd`/$tgzOutRel
 
-    LOG=5 bun $pkgTs build $wsroot/$pkgDir
+    if [[ "$pkgDir" == "$justBootstrapPkg" ]]; then
+        action=bootstrap
+    else
+        action=build
+    fi
+
+    bun $pkgTs $action $wsroot/$pkgDir --ci=$ci --loglevel=$loglevel
 
     cp $pkgDir/package.tgz $tgzOut
     
-    """.format(srcs[0].path, outs[0].path, wsroot)+ cmdExtra
+    """.format(wsroot, ci, loglevel, justBootstrapPkg, srcs[0].path, outs[0].path)+ cmdExtra
 
     ctx.actions.run_shell(
         use_default_shell_env = True,
-        # TODO: How to let packages get node_modules back?
         outputs = outs,
         inputs = srcs,
         command = 
@@ -87,4 +98,5 @@ def build(
         cmd = cmd,
         **kwargs
     )
+
 

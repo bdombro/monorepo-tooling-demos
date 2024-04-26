@@ -26,16 +26,14 @@
  *  - This script is called from either the root of the monorepo, or from a package directory
  *  - The crosslinks of the package are already built and packed into package.tgz
  */
+import arg from "arg";
 import chokidar from "chokidar";
 import {
   cachify,
   Dict,
   fs,
   Log,
-  log1,
-  log2,
-  log3,
-  log4,
+  logDefault,
   O,
   P,
   PReturnType,
@@ -44,20 +42,25 @@ import {
   stepErrCb,
   str,
   Time,
+  UTIL_ENV,
 } from "./util.js";
 import path from "path";
 
-// const ENV = {
-//   semiDry: Number(process.env.DRY),
-//   skipReset: Number(process.env.NORST),
-// };
+const ENV = {
+  logLevel: Number(process.env.LOG ?? 1),
+  ci: process.env.CI === "1" ? true : false,
+};
 
-async function main(
-  /** action to take: see usage */
-  action: string,
-  /** the full name of a package including domain, or short if using default domain */
-  pkgPathOrBasename: string
-) {
+const log = new Log({ prefix: "pkg-cli:" });
+const log0 = log.l0;
+const log1 = log.l1;
+const log2 = log.l2;
+const log3 = log.l3;
+const log4 = log.l4;
+const log5 = log.l5;
+const log9 = log.l9;
+
+async function main() {
   const usage = `
   Usage: bun pkg-cli.ts {action} {pkgPathOrBasename}
 
@@ -75,15 +78,37 @@ async function main(
   watch: sync with watch mode
   `;
 
+  const args = arg({
+    "--ci": String,
+    "--help": Boolean,
+    "--loglevel": Number,
+    "--verbose": arg.COUNT, // Counts the number of times --verbose is passed
+
+    // Aliases
+    "-h": "--help",
+    "-v": "--verbose",
+  });
+
+  if (args["--help"]) return console.log(usage);
+
+  ENV.ci = UTIL_ENV.ci =
+    args["--ci"] && ["1", "true"].includes(args["--ci"]) ? true : ENV.ci;
+  ENV.logLevel = UTIL_ENV.logLevel =
+    (ENV.logLevel > 1 && ENV.logLevel) ||
+    args["--loglevel"] ||
+    (args["--verbose"] ?? 0) + 1;
+
+  let action = args._?.[0];
+  if (!action) return console.log(usage);
+
+  /** We don't support multple pkgs  */
+  const pkgPathOrBasename = args._?.[1];
   if (!pkgPathOrBasename) return console.log(usage);
 
-  const pkg = await Pkg.getPkgC(pkgPathOrBasename, true).catch((e) => {
-    log1(e);
-    log1(`PKG:ERROR! STEP=${e?.step ?? "unknown"}`);
-    log1(`PKG:ERRORJSON->${str(e)}`);
-    log1(e.stack);
-    throw e;
-  });
+  log4(`pkg-cli->start: ${action} ${pkgPathOrBasename}`);
+  log4(`pkg-cli->start: CI=${ENV.ci} logLevel=${ENV.logLevel}`);
+
+  const pkg = await Pkg.getPkgC(pkgPathOrBasename, true);
 
   try {
     switch (action) {
@@ -153,7 +178,7 @@ export class Pkg {
       await this.fixBazel();
       throw stepErr(Error(errMsg), "fixBaz-bail");
     }
-    log3(`assertBaz->done! ${this.basename}`);
+    log3(`assertBaz->end ${this.basename}`);
   };
 
   bootstrap = async () => {
@@ -170,7 +195,7 @@ export class Pkg {
       await this.reset();
       throw stepErr(e, "bootstrap");
     }
-    log1(`bootstrap->done! ${Time.diff(start)}`);
+    log1(`bootstrap->end ${Time.diff(start)}`);
   };
 
   build = async () => {
@@ -190,7 +215,7 @@ export class Pkg {
       log1(`BUILD:ERRORJSON->${str(e)}`);
       throw e;
     }
-    log1(`build->done! ${Time.diff(start)}`);
+    log1(`build->end ${Time.diff(start)}`);
   };
 
   /** Fixes a broken BUILD.bazel */
@@ -206,7 +231,7 @@ export class Pkg {
     } catch (e) {
       stepErrCb("fixBaz");
     }
-    log3(`fixBaz->done! ${this.basename}`);
+    log3(`fixBaz->end ${this.basename}`);
   };
 
   reset = async () => {
@@ -222,7 +247,7 @@ export class Pkg {
     } catch (e: any) {
       throw stepErr(e, "reset");
     }
-    log3(`reset->done! ${this.basename}`);
+    log3(`reset->end ${this.basename}`);
   };
 
   yarnCleanCache = async () => {
@@ -242,7 +267,7 @@ export class Pkg {
     } catch (e) {
       stepErrCb("cleanCache");
     }
-    log3(`cleanCache->done! ${this.basename}`);
+    log3(`cleanCache->end ${this.basename}`);
   };
 
   /**
@@ -283,14 +308,14 @@ export class Pkg {
     } catch (e: any) {
       throw stepErr(e, "preinstall");
     }
-    log3(`yarnPreinstall->done! ${this.basename}`);
+    log3(`yarnPreinstall->end ${this.basename}`);
   };
   yarnInstall = async () => {
     log4(`yarnInstall->${this.basename}`);
     await sh
       .exec(`yarn install --mutex file`, { wd: this.pathAbs })
       .catch(stepErrCb("install"));
-    log3(`yarnInstall->done! ${this.basename}`);
+    log3(`yarnInstall->end ${this.basename}`);
   };
 
   /** Remove all crosslinks from package.json */
@@ -309,21 +334,21 @@ export class Pkg {
     } catch (e: any) {
       throw stepErr(e, "prepack");
     }
-    log3(`yarnPrepack->done! ${this.basename}`);
+    log3(`yarnPrepack->end ${this.basename}`);
   };
   yarnPack = async () => {
     log4(`yarnPack->${this.basename}`);
     await sh
       .exec(`yarn pack -f package.tgz`, { wd: this.pathAbs })
       .catch(stepErrCb("pack"));
-    log3(`yarnPack->done! ${this.basename}`);
+    log3(`yarnPack->end ${this.basename}`);
   };
   yarnPostpack = async () => {
     log4(`yarnPostpack->${this.basename}`);
     await P.all([this.yarnCleanCache(), this.reset()]).catch(
       stepErrCb("postpack")
     );
-    log3(`yarnPostpack->done! ${this.basename}`);
+    log3(`yarnPostpack->end ${this.basename}`);
   };
 
   /** Clean up previous build */
@@ -335,12 +360,12 @@ export class Pkg {
       fs.rm(`${this.pathAbs}/build`),
       sh.exec(`yarn clean`, { wd: this.pathAbs }).catch(() => {}),
     ]).catch(stepErrCb("prebuild"));
-    log3(`yarnPrebuild->done! ${this.basename}`);
+    log3(`yarnPrebuild->end ${this.basename}`);
   };
   yarnBuild = async () => {
     log4(`yarnBuild->${this.basename}`);
     await sh.exec(`yarn build`, { wd: this.pathAbs }).catch(stepErrCb("build"));
-    log3(`yarnPrebuild->done! ${this.basename}`);
+    log3(`yarnPrebuild->end ${this.basename}`);
   };
 
   /** syncs the build artifacts of workspace deps with a package's node_modules */
@@ -444,7 +469,8 @@ export class Pkg {
         pathAbs = `${pathWs}/${pathRel}`;
       }
 
-      log4(`path->${pathAbs}`);
+      log2(`getPkg:path->match for ${basename}`);
+      log4(`getPkg:path->${pathAbs}`);
 
       const jsonF = await fs.getPkgJsonFileC(pathAbs);
       const { text, json } = jsonF;
@@ -516,9 +542,15 @@ export class Pkg {
         pathWs,
         text
       );
+
+      log3(`getPkg->done for ${basename}`);
       return pkg;
     } catch (e: any) {
-      throw stepErr(e, "getPkg");
+      log1(e);
+      log1(`PKG:ERROR! STEP=${e?.step ?? "unknown"}`);
+      log1(`PKG:ERRORJSON->${str(e)}`);
+      log1(e.stack);
+      throw e;
     }
     // end getPkg
   };

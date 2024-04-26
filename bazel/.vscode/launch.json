@@ -14,9 +14,9 @@
       "stopOnEntry": false,
       "watchMode": false,
       "env": {
-        "LOG": "5"
+        "LOG": "4"
       },
-      "args": ["build", "lib0"]
+      "args": ["bootstrap", "react-app"]
     },
     {
       "type": "bun",
