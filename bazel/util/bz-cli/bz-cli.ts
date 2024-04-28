@@ -38,12 +38,14 @@ import {
   Log,
   logDefault,
   O,
+  omit,
   P,
   PReturnType,
   sh,
   stepErr,
   stepErrCb,
   str,
+  str2,
   throwErr,
   throwStepErr,
   Time,
@@ -60,6 +62,9 @@ const ENV = {
   ci: process.env.CI === "1" ? true : false,
   user: process.env.USER,
 };
+
+// TODO: How to handle npmrc issue that we need npm token to install private packages, which
+// didn't work when I first tried od/code
 
 const log = new Log({ prefix: "bz:" });
 const log0 = log.l0;
@@ -101,7 +106,8 @@ watch: sync + watch for changes
     /** Disable remote caching and purge local caches before build/bootstrapping */
     "--no-cache": Boolean,
     "--help": Boolean,
-    "--hide-timestamps": Boolean,
+    "--show-loglevels": Boolean,
+    "--show-timestamps": Boolean,
     "--loglevel": Number,
     "--verbose": arg.COUNT, // Counts the number of times --verbose is passed
     // the location of the workspace root (optional, will find on own)
@@ -122,8 +128,10 @@ watch: sync + watch for changes
     args["--loglevel"] ||
     (args["--verbose"] ?? 0) + 1;
 
-  if (args["--hide-timestamps"])
-    log.forceHideTs = logDefault.forceHideTs = true;
+  if (args["--show-timestamps"])
+    log.showTimestamps = logDefault.showTimestamps = true;
+  if (args["--show-loglevels"])
+    log.showLogLevels = logDefault.showLogLevels = true;
 
   const action = args._?.[0];
   if (!action) return console.log(usage);
@@ -196,7 +204,7 @@ watch: sync + watch for changes
       case "watch": {
         const pkgName = parsePkgNames()?.[0];
         if (!pkgName) return console.log(usage);
-        log.forceHideTs = logDefault.forceHideTs = true;
+        log.showTimestamps = logDefault.showTimestamps = true;
         log1(`bz:watch->${pkgName}`);
         const pkg = await Pkg.getPkgC(`${wsRoot}/packages/${pkgName}`);
         await pkg.syncCrosslinks({ watch: true });
@@ -208,16 +216,11 @@ watch: sync + watch for changes
         return console.log(usage);
     }
   } catch (e: any) {
-    log1(e);
-    log1(`BZ:ERROR! STEP=${e?.step ?? "unknown"}`);
-    log1(`BZ:ERRORJSON->${str(e)}`);
-    log1(`BZ:ERROR->${str({ ...e, stack: e.stack.split("\n") }, 2)}`);
-    log1(e.stack);
-    console.log("Full-log:", Log.file);
+    await log.lFinish(e);
     process.exit();
   }
 
-  console.log("\nFull-log:", Log.file);
+  await log.lFinish();
 }
 
 export const buildAllPkgs = async (
@@ -251,32 +254,48 @@ export const build = async (
   log1(`${lctx}:start->${pkgBasename}`);
   const start = Date.now();
   await installEnvDepsC(wsRoot);
-  if (noCache) await cleanBazelCache(wsRoot);
+  const bazelConf = await getBazelConfig(wsRoot);
+  if (noCache) {
+    await P.all([
+      bazelConf.setCloudCacheEnabled(false),
+      cleanBazelCache(wsRoot),
+    ]);
+  }
   const wsRootForBzl = ENV.ci ? "" : wsRoot;
-  await sh.exec(
-    `bazel build //packages/${pkgBasename}:build ` +
-      `--define ci=true ` +
-      `--define loglevel=${ENV.logLevel} ` +
-      `--define justBootstrapPkg=${skipLastBuild ? pkgBasename : ""} ` +
-      `--define wsroot=${wsRootForBzl} `,
-    {
-      wd: wsRoot,
-      verbose: true,
-    }
-  );
-  // stdout.split("\n").forEach((line) => {
-  //   if (
-  //     line.match(/\d\d:\d\d:\d\d.\d\d /) ||
-  //     line.includes("pkg-cli") ||
-  //     line.includes("sh.") ||
-  //     line.includes("fs.")
-  //   ) {
-  //     log0(line);
-  //   } else {
-  //     log1(line);
-  //   }
-  // });
-  await restorePkgFromCache(wsRoot, pkgBasename);
+  const pkg = await Pkg.getPkgC(`${wsRoot}/packages/${pkgBasename}`);
+  const clBasenames = O.values(pkg.clBld).map((cl) => cl.basename);
+  const pkgsWithoutLocalCache = (
+    await P.all(
+      clBasenames.map(async (cl) => {
+        if (!(await fs.stat(`${wsRoot}/packages/${cl}/package.tgz`))) {
+          return cl;
+        }
+      })
+    )
+  ).filter(Boolean) as string[];
+  const pkgsToBuild = [...pkgsWithoutLocalCache, pkgBasename];
+  for (const _pkgBasename of pkgsToBuild) {
+    await sh
+      .exec(
+        `bazel build //packages/${_pkgBasename}:build ` +
+          `--define ci=${ENV.ci} ` +
+          `--define loglevel=${ENV.logLevel} ` +
+          `--define justBootstrapPkg=${skipLastBuild ? _pkgBasename : ""} ` +
+          `--define wsroot=${wsRootForBzl} `,
+        {
+          logFilter: (line) => true,
+          wd: wsRoot,
+          verbose: true,
+        }
+      )
+      .catch((e) => {
+        log1(`build->error->${_pkgBasename}`);
+        log1(`See shell logs above for details.`);
+        process.exit();
+      });
+    await restorePkgFromCache(wsRoot, _pkgBasename);
+  }
+  if (noCache) await bazelConf.resetCloudEnabled();
   log1(`${lctx}->end ${Time.diff(start)}`);
 };
 
@@ -328,44 +347,55 @@ export const cleanBazelCache = async (wsRoot: string) => {
 export const cleanYarnCache = async (wsRoot: string, names: string[]) => {
   log4("cleanYarnCache->start");
   await P.all([
-    ...names.map((name) => sh.exec(`yarn cache clean @app/${name}`)),
+    // ...names.map((name) => sh.exec(`yarn cache clean @app/${name}`)), // too slow
     sh.exec(
-      `find $(yarn cache dir)/.tmp -name package.json -exec grep -sl ${names
-        .map((name) => `-e @app/${name}`)
-        .join(" ")} {} \\; | xargs dirname | xargs rm -rf`,
-      { wd: wsRoot }
+      `find ~/Library/Caches/Yarn/v6 -maxdepth 1 -not -path ".tmp" \\( ` +
+        names.map((name) => `-name "*${name}*"`).join(" -or ") +
+        ` \\) -exec rm -rf {} \\;`
+    ),
+    sh.exec(
+      `find ~/Library/Caches/Yarn/v6/.tmp -name package.json -exec grep -sl ${names
+        .map((name) => `-e ${name}`)
+        .join(" ")} {} \\; | xargs dirname | xargs rm -rf`
     ),
   ]);
   log4("cleanYarnCache->end");
 };
 
 export const getBazelConfig = async (wsRoot: string) => {
-  const config = await fs.getC(`${wsRoot}/.bazelrc`);
-  if (!config) throw stepErr(Error("No .bazelrc found"), "getBazelConfig");
-  return {
-    ...config,
+  const configF = await fs.getC(`${wsRoot}/.bazelrc`);
+  if (!configF) throw stepErr(Error("No .bazelrc found"), "getBazelConfig");
+  const textOrig = configF.text;
+  const config = {
+    ...configF,
     setCloudCacheEnabled: async (enabled: boolean) => {
+      let next = config.text;
       // build --remote_cache=https://storage.googleapis.com/od-bazel-cache-test
       if (enabled) {
-        config.text = config.text.replace(/# (build --remote_cache=.*)/, "$1");
+        next = next.replace(/# (build --remote_cache=.*)/, "$1");
       } else {
-        config.text = config.text.replace(
-          /\n(build --remote_cache=.*)/,
-          `\n# $1`
-        );
+        next = next.replace(/\n(build --remote_cache=.*)/, `\n# $1`);
       }
-      await config.save();
+      await configF.set(next);
+      config.text = next;
       log1(`setCloudCacheEnabled->${enabled}`);
     },
+    resetCloudEnabled: async () => {
+      configF.reset();
+      config.text = textOrig;
+    },
   };
+  return config;
 };
 
 export const getPkgNames = async (wsRoot: string) => {
-  const names = await fs.lsC(`${wsRoot}/packages`);
-  if (!!names?.length)
+  const pkgDir = `${wsRoot}/packages`;
+  const names = await fs.lsC(`${pkgDir}`);
+  if (!names?.length)
     throw stepErr(
       Error('No packages found in "packages" directory'),
-      "getPkgNames"
+      "getPkgNames",
+      { pkgDir }
     );
   return names as string[];
 };
@@ -378,16 +408,20 @@ export const installEnvDeps = async (wsRoot: string) => {
     sh.assertCmdExists("bazel"),
     sh.assertCmdExists("git"),
     sh.assertCmdExists("jq"),
-    // TODO: Figure out why this isn't working
-    // sh.cmdExists("bun").then(async (o) => {
-    //   !o && sh.exec(`curl -fsSL https://bun.sh/install | bash`);
-    // }),
-    sh.exec(`chmod +x ${__filename}; ln -sf ${__filename} /usr/local/bin/bz`),
-    fs.copyFile(
-      `${wsRoot}/.tool-versions`,
-      `/private/var/tmp/_bazel_${ENV.user}`,
-      { skipBackup: true }
-    ),
+    fs.stat(`${fs.home}/.bun`).then(async (o) => {
+      !o && sh.exec(`curl -fsSL https://bun.sh/install | bash`);
+    }),
+    fs.stat(`/usr/local/bin/bz`).then(async (o) => {
+      if (!o)
+        P.all([
+          sh.exec(
+            `chmod +x ${__filename} && ln -sf ${__filename} /usr/local/bin/bz`
+          ),
+          sh.exec(
+            `chmod +x ${__dirname}/pkg-cli.ts && ln -sf ${__dirname}/pkg-cli.ts /usr/local/bin/pkg`
+          ),
+        ]);
+    }),
   ]);
   log4("installEnvDeps->end");
 };

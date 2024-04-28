@@ -1,14 +1,15 @@
 #!/usr/bin/env bun
 
-import childProcessNode from "child_process";
-import { promises as fsNode } from "fs";
-import pathNode from "path";
-import util from "util";
+import childProcessNode from "node:child_process";
+import { promises as fsNode } from "node:fs";
+import os from "node:os";
+import pathNode from "node:path";
+import util from "node:util";
 
 export const UTIL_ENV = {
-  ci: process.env.CI === "1" ? true : false,
-  logLevel: Number(process.env.LOG ?? 1),
-  semiDry: Number(process.env.DRY),
+  ci: process.env["CI"] === "1" ? true : false,
+  logLevel: Number(process.env["LOG"] ?? 1),
+  semiDry: Number(process.env["DRY"]),
 };
 
 /** Aliases and misc */
@@ -46,8 +47,33 @@ export const isNum = (a: unknown): a is number => typeof a === "number";
 /** alias for typeof var === "string" */
 export const isStr = (s: unknown): s is string => typeof s === "string";
 
+import crypto from "node:crypto";
+// import fs from "fs";
+
+export const md5 = (bufferOrBuffers: Buffer | Buffer[]) => {
+  const hash = crypto.createHash("md5");
+  if (isArr(bufferOrBuffers)) {
+    bufferOrBuffers.forEach((b) => hash.update(b));
+  } else {
+    hash.update(bufferOrBuffers);
+  }
+  return hash.digest("hex");
+};
+
 /** alias for Object */
 export const O = Object;
+
+/** omit kets from an object */
+export const omit = <T extends Record<string, any>, K extends keyof T>(
+  obj: T,
+  keys: readonly K[] | K[]
+): Omit<T, K> => {
+  const res = Object.assign({}, obj);
+  keys?.forEach((k) => {
+    if (k in obj) delete res[k];
+  });
+  return res;
+};
 
 /** alias for Promise */
 export const P = Promise;
@@ -126,13 +152,24 @@ export const str2 = (o: any): string => {
   return s;
 };
 
-export const strCondense = (str: string): string =>
-  str
-    .replace(strAnsiEscapeExp, "")
+export const strCondense = (
+  s: string,
+  options: { removeStyle?: boolean } = {}
+): string => {
+  const { removeStyle = true } = options;
+  s = s
     .split("\n")
     .map((l) => l.trim())
     .filter(Boolean)
     .join("\n");
+  if (removeStyle) s = s.replace(strAnsiEscapeExp, "");
+  return s;
+};
+
+export const strTrim = (s: string, len: number) => {
+  if (s.length <= len) return s;
+  return s.slice(0, len) + "...";
+};
 
 /**
  * convenience method for throwing errors inline.
@@ -193,7 +230,7 @@ export class fs {
         new Date().toISOString().slice(11, -2).replace(/:/g, ".");
 
       if (text) {
-        await fs.writeFile(backupPath, text, { skipBackup: true });
+        await fs.set(backupPath, text, { skipBackup: true });
       } else if (moveInsteadOfCopy) {
         await fs.rename(path, backupPath, { skipBackup: true });
       } else {
@@ -263,11 +300,11 @@ export class fs {
       /** resets the file to the original state when first read */
       reset: async () => {
         log5(`fs.get->reset ${path}`);
-        await fs.writeFile(path, text);
+        await fs.set(path, text);
         log5(`fs.get->reset-success ${path}`);
       },
-      save: async () => fs.writeFile(path, file.text),
-      set: (newText: string) => fs.writeFile(path, newText),
+      save: async () => fs.set(path, file.text),
+      set: (newText: string) => fs.set(path, newText),
       text,
     };
     return file;
@@ -277,22 +314,22 @@ export class fs {
 
   /** get json file */
   static getJsonFile = async <T extends any>(path: string) => {
-    const rfRes = await fs.get(path);
-    const json = JSON.parse(rfRes.text) as T;
+    const file = await fs.get(path);
+    const json = JSON.parse(file.text) as T;
     const jsonF = {
-      ...rfRes,
+      ...file,
       json,
       jsonOrig: json,
       path,
       /** will reset to the original values when first read */
       reset: async () => {
-        await rfRes.reset();
+        await file.reset();
         jsonF.json = jsonF.jsonOrig;
       },
       /** will save to fs whatever the current values in json are */
       save: async () => jsonF.setJson(jsonF?.json),
       /** will set the json and write it to disk */
-      setJson: async (json: any) => rfRes.set(str(json, 2) + "\n"),
+      setJson: async (json: any) => file.set(str(json, 2) + "\n"),
     };
     return jsonF;
   };
@@ -313,24 +350,69 @@ export class fs {
   /** get package.json file from cache or fs */
   static getPkgJsonFileC = cachify(fs.getPkgJsonFile);
 
+  static home = os.homedir();
+
   /** get file list from cache or fs */
-  static ls = async (path: string): Promise<null | string[]> => {
-    const lctx = `fs.ls: ${path}`;
+  // TODO: replace usages of sh.find with this
+  static ls = async (
+    path: string,
+    options: {
+      type?: "file" | "dir";
+      /** regex excludes */
+      excludes?: RegExp[];
+      currentDepth?: number;
+      maxDepth?: number;
+      recursive?: boolean;
+    } = {}
+  ): Promise<null | string[]> => {
+    // log4(`fs:ls:start->${path}`);
 
-    log4(`${lctx}:start`);
+    const {
+      currentDepth = 0,
+      excludes = [],
+      maxDepth = Infinity,
+      recursive = false,
+      type,
+    } = options;
 
-    const files = await fsNode
-      .readdir(path)
-      .then(
-        (p) => p.filter((p) => p !== ".DS_Store"),
-        () => null
+    excludes.push(...[/.DS_Store/]);
+
+    const paths: string[] = [];
+    await fsNode.readdir(path).then(async (paths2) =>
+      P.all(
+        paths2.map(async (p) => {
+          for (let e of excludes) {
+            if (p.match(e)) return;
+          }
+          p = `${path}/${p}`;
+          const stat = await fs.stat(p);
+          const isDir = stat!.isDirectory();
+          const isFile = stat!.isFile();
+          if (isDir && recursive && currentDepth < maxDepth) {
+            await fs
+              .ls(p, {
+                currentDepth: currentDepth + 1,
+                excludes,
+                maxDepth,
+                recursive,
+                type,
+              })
+              .then((paths3) => {
+                paths3 && paths.push(...paths3);
+              });
+          }
+          if (type) {
+            if (type === "dir" && !isDir) return false;
+            if (type === "file" && !isFile) return false;
+          }
+          paths.push(p);
+        })
       )
-      .catch((e) => {
-        throw stepErr(Error(`${e.message}; ls:${path}`), `fs.ls`);
-      });
+    );
 
-    log4(`${lctx}: ${files ? `found: ${files.length}` : " not found"}`);
-    return files;
+    // log4(`fs:ls:res->${paths ? `found: ${paths.length}` : " not found"}`);
+    paths.sort();
+    return paths;
   };
   static lsC = cachify(fs.ls);
 
@@ -339,6 +421,17 @@ export class fs {
       return path.replace(process.cwd(), "").replace(/^\//, "") ?? "./";
     }
     return path;
+  };
+
+  static purgeDir = async (path: string) => {
+    try {
+      const todo = await fs.ls(path);
+      if (!todo?.length) return;
+      await P.all(todo.map((f) => fs.rm(`${path}/${f}`, { skipBackup: true })));
+      return todo.length;
+    } catch (e: any) {
+      throw stepErr(e, `fs.purgeDir`, { path });
+    }
   };
 
   static read = fs.get;
@@ -383,7 +476,7 @@ export class fs {
       log4(`${lctx}->start!`);
       await P.all(
         O.values(fs.dirtyFiles).map((df) =>
-          fs.writeFile(df.path, df.orig, { skipBackup: true })
+          fs.set(df.path, df.orig, { skipBackup: true })
         )
       );
       await P.all(fs.createdFiles.map((cf) => fs.rm(cf, { skipBackup: true })));
@@ -440,7 +533,7 @@ export class fs {
     await fs.rm(fs.tmpDir);
   };
 
-  static writeFile = async (
+  static set = async (
     to: string,
     text: string,
     options: {
@@ -460,10 +553,10 @@ export class fs {
         }
       }
     } catch (e: any) {
-      throw stepErr(e, `fs.writeFile:backup->failed`);
+      throw stepErr(e, `fs.set:backup->failed`);
     }
     await fsNode.writeFile(to, text, "utf8").catch((e) => {
-      throw stepErr(Error(`${e.message}; to:${to}`), `fs.writeFile`);
+      throw stepErr(Error(`${e.message}; to:${to}`), `fs.set`);
     });
   };
 }
@@ -473,9 +566,9 @@ export class sh {
   static _exec = util.promisify(childProcessNode.exec);
 
   static cmdExists = async (cmd: string) =>
-    !!(await sh.exec(`command -v ${cmd}`, { throws: false }));
+    !!(await sh.exec(`command -v ${cmd}`, { silent: true }).catch(() => {}));
   static assertCmdExists = async (cmd: string) =>
-    await sh.exec(`command -v ${cmd}`).catch(() => {
+    await sh.exec(`command -v ${cmd}`, { silent: true }).catch(() => {
       throw stepErr(Error(`Command not found: ${cmd}`), `sh.assertCmdExists`);
     });
 
@@ -483,6 +576,8 @@ export class sh {
   static exec = async (
     cmd: string,
     options: {
+      /** cb for logs on a lineArray.filter */
+      logFilter?: (text: string) => any;
       rawOutput?: boolean;
       silent?: boolean;
       throws?: boolean;
@@ -492,6 +587,7 @@ export class sh {
     } = {}
   ): Promise<string> => {
     const {
+      logFilter = () => true,
       rawOutput = false,
       silent = false,
       throws = true,
@@ -511,61 +607,70 @@ export class sh {
     }
 
     const id = (sh.execCount = (sh.execCount ?? 0) + 1);
-    const lctx = `sh.exec:${id}`;
+    const prefix = `sh:${id}:`;
 
-    _log3(`${lctx} cmd='${cmd}'`);
-    _log4(`${lctx} cwd=${wd}`);
+    _log3(`${prefix} cmd='${strTrim(cmd, 300)}'`);
+    log9(`${prefix}:${id} cmdFull='${cmd}'`);
+    _log4(`${prefix} cwd=${wd}`);
 
     const cwdExp = new RegExp(process.cwd(), "g");
 
     // const cmdFinal = (options.wd ? `cd ${wd} && ${cmd}` : cmd) + " 2>&1";
     const cmdFinal = options.wd ? `cd ${wd} && ${cmd}` : cmd;
 
-    let execP = Promise.withResolvers<string>();
+    // let execP = Promise.withResolvers<string>();
+    return new Promise((resolve, reject) => {
+      let allout = "";
+      const execLog = (text: string, type: "stdout" | "stderr") => {
+        let out = strCondense(text, { removeStyle: false });
+        if (!out) return;
+        allout += out + "\n";
+        // let outPrefix = `stdout:`;
+        // if (out.length > maxStdOutLen) {
+        //   out = out.slice(0, maxStdOutLen) + "...";
+        //   outPrefix += " (trimmed)";
+        // }
+        if (rawOutput) log0(text);
+        else {
+          for (let l of out.split("\n")) {
+            if (!logFilter(l)) continue;
+            l = l.replace(cwdExp, "wd:");
+            l = `${prefix} ${l}`;
+            _log3(l);
+          }
+        }
+      };
 
-    let allout = "";
-    const execLog = (text: string, type: "stdout" | "stderr") => {
-      let out = strCondense(text);
-      if (!out) return;
-      allout += out + "\n";
-      // let outPrefix = `stdout:`;
-      // if (out.length > maxStdOutLen) {
-      //   out = out.slice(0, maxStdOutLen) + "...";
-      //   outPrefix += " (trimmed)";
-      // }
-      if (rawOutput) log0(text);
-      else
-        out
-          .split("\n")
-          .map((l) => l.replace(cwdExp, "wd:"))
-          .forEach((l) => _log3(`${lctx} ${l}`));
-    };
+      const cp = childProcessNode.spawn(cmdFinal, { shell: true });
+      cp.stdout.on("data", (data) => execLog(data.toString(), "stdout"));
+      cp.stderr.on("data", (data) => execLog(data.toString(), "stderr"));
+      cp.on("close", (code) => {
+        if (!allout) {
+          _log2(`${prefix} (empty stdout/stderr)`);
+        }
+        if (code) {
+          _log1(`${prefix} ERROR!`);
+          _log1(`${prefix} cmd='${strTrim(cmd, 200)}'`);
+          _log1(`${prefix} wd=${wd}`);
+          _log1(`${prefix} code=${code}`);
 
-    const cp = childProcessNode.spawn(cmdFinal, { shell: true });
-    cp.stdout.on("data", (data) => execLog(data.toString(), "stdout"));
-    cp.stderr.on("data", (data) => execLog(data.toString(), "stderr"));
-    cp.on("close", (code) => {
-      if (!allout) {
-        _log2(`${lctx} no output`);
-      }
-      if (code) {
-        _log1(`${lctx} ERROR!`);
-        _log1(`${lctx} cmd='${cmd}'`);
-        _log1(`${lctx} wd=${wd}`);
-        _log1(`${lctx} code=${code}`);
+          const err = O.assign(Error(`sh:${id}->nonzero-return`), {
+            cmd: strTrim(cmd, 200),
+            execId: id,
+            step: "exec",
+            workingDir: wd,
+          });
+          if (throws) {
+            // execP.reject(err);
+            reject(err);
+          }
+        }
+        // execP.resolve(allout);
+        resolve(allout);
+      });
 
-        const err = O.assign(Error(`${lctx}->nonzero-return`), {
-          cmd,
-          execId: id,
-          step: "exec",
-          workingDir: wd,
-        });
-        if (throws) execP.reject(err);
-      }
-      execP.resolve(allout);
+      // return execP.promise;
     });
-
-    return execP.promise;
   };
   static execCount = 0;
 
@@ -574,8 +679,10 @@ export class sh {
 
 export class Log {
   static file = `${fs.tmpDir}/run.log`;
+  static appendLogFilePromises: Promise<any>[] = [];
   public prefix: string;
-  public forceHideTs: boolean;
+  public showLogLevels: boolean;
+  public showTimestamps: boolean;
 
   constructor(
     options: {
@@ -584,7 +691,8 @@ export class Log {
   ) {
     const { prefix } = options;
     this.prefix = prefix ?? "";
-    this.forceHideTs = false;
+    this.showLogLevels = false;
+    this.showTimestamps = false;
   }
 
   /**
@@ -594,9 +702,10 @@ export class Log {
    * 9: don't print to console, only to log file
    */
   logn(n: number) {
-    const logFnc = (...args: any) => {
+    const logFnc = async (...args: any) => {
       /** determines how much logging is printed to the console. Higher is more. */
       const logLevel = UTIL_ENV.logLevel;
+      let isErr = args[0] instanceof Error;
 
       // This debug line helps find empty log calls
       // if ([...args].join("").trim() === "") console.trace();
@@ -615,7 +724,7 @@ export class Log {
         return;
       }
 
-      if (this.prefix) {
+      if (this.prefix && !isErr) {
         if (isStr(args[0])) args[0] = this.prefix + args[0];
         else args.unshift(this.prefix);
       }
@@ -626,38 +735,41 @@ export class Log {
       // skip logging to console if the log message level is higher than the log level
       if (logLevel >= n) {
         let argsExtra = args;
+        if (isStr(args[0])) {
+          if (args[0].match(/INFO/)) args[0] = Log.colors.cyan(args[0]);
+          if (args[0].match(/ERROR/)) args[0] = Log.colors.red(args[0]);
+        }
         const tsNoYear = ts.slice(11);
-        if (logLevel > 4) {
+        if (this.showLogLevels) {
           argsExtra.unshift(`L${n}`);
         }
-        if (!UTIL_ENV.ci && !this.forceHideTs) {
+        if (this.showTimestamps) {
           argsExtra.unshift(tsNoYear);
         }
         console.log(...argsExtra);
       }
 
       // lazily log to file
-      fs.tmpDirCreate().then(() => {
-        let txt = "";
-        if (args[0] instanceof Error) {
-          let lines = [];
-          // dump of the error in a the way that mimics console
-          lines.push(args[0].stack + " {");
-          lines.push(...O.entries(args[0]).map(([k, v]) => `  ${k}: ${v}`));
-          lines.push("}");
-          txt = lines.join("\n") + "\n";
-        } else {
-          let lines = [];
-          lines.push(`${ts} L${n}`);
-          const hasObjs = args.some(
-            (a: any[]) => !isTypeOf(a, ["string", "number"])
-          );
-          if (!hasObjs) lines[0] += ` ${args.join(" ")}`;
-          else lines.push(...args.map(str));
-          txt = lines.join(" ") + "\n";
-        }
-        fsNode.appendFile(Log.file, txt);
-      });
+      await fs.tmpDirCreate();
+      let txt = "";
+      if (isErr) {
+        let lines = [];
+        // dump of the error in a the way that mimics console
+        lines.push(args[0].stack + " {");
+        lines.push(...O.entries(args[0]).map(([k, v]) => `  ${k}: ${v}`));
+        lines.push("}");
+        txt = lines.join("\n") + "\n";
+      } else {
+        let lines = [];
+        lines.push(`${ts} L${n}`);
+        const hasObjs = args.some(
+          (a: any[]) => !isTypeOf(a, ["string", "number"])
+        );
+        if (!hasObjs) lines[0] += ` ${args.join(" ")}`;
+        else lines.push(...args.map(str));
+        txt = lines.join(" ") + "\n";
+      }
+      Log.appendLogFilePromises.push(fsNode.appendFile(Log.file, txt)); // be lazy about it
 
       return args;
 
@@ -692,6 +804,43 @@ export class Log {
   l9 = (...args: any) => {
     return this.logn(9)(...args);
   };
+
+  lErrCtx = (e: any) => {
+    log1(`Error: ${e.message}`);
+    this.l1(e);
+    this.l1(
+      `ERROR:CTX->${str(
+        {
+          step: `${e?.step ?? "unknown"}`,
+          ...omit(e, ["message", "originalColumn", "originalLine", "stack"]),
+        },
+        2
+      ).replace(/"/g, "")}`
+    );
+  };
+
+  lFinish = async (maybeErr?: any) => {
+    if (maybeErr) this.lErrCtx(maybeErr);
+    this.l1("Full-log:", Log.file);
+    await Log.waitForlogFileSettled();
+  };
+
+  static waitForlogFileSettled = async () => {
+    await pAll(Log.appendLogFilePromises);
+  };
+
+  static colors = {
+    cyan: (text: string) => `\x1b[36m${text}\x1b[0m`,
+    yellow: (text: string) => `\x1b[33m${text}\x1b[0m`,
+    blue: (text: string) => `\x1b[34m${text}\x1b[0m`,
+    magenta: (text: string) => `\x1b[35m${text}\x1b[0m`,
+    red: (text: string) => `\x1b[31m${text}\x1b[0m`,
+    green: (text: string) => `\x1b[32m${text}\x1b[0m`,
+    white: (text: string) => `\x1b[37m${text}\x1b[0m`,
+    black: (text: string) => `\x1b[30m${text}\x1b[0m`,
+    brightCyan: (text: string) => `\x1b[96m${text}\x1b[0m`,
+    brightYellow: (text: string) => `\x1b[93m${text}\x1b[0m`,
+  };
 }
 export const logDefault = new Log();
 export const log0 = logDefault.l0;
@@ -701,6 +850,8 @@ export const log3 = logDefault.l3;
 export const log4 = logDefault.l4;
 export const log5 = logDefault.l5;
 export const log9 = logDefault.l9;
+export const logErrCtx = logDefault.lErrCtx;
+export const logFinish = logDefault.lFinish;
 
 export class Time {
   static diff = (start: number | Date, end?: number | Date) => {
@@ -724,4 +875,12 @@ export class Time {
 
     return str || "0s"; // Return "0 seconds" for no difference
   };
+}
+
+/** Mainly used for testing */
+if (import.meta.url === `file://${process.argv[1]}`) {
+  // console.log(process.argv);
+  // d@ts-expect-error - gets confused args
+  // await main(...process.argv.slice(2));
+  // await fs.ls(process.argv[2], { recursive: true });
 }

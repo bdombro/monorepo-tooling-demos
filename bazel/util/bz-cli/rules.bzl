@@ -12,43 +12,14 @@ def _impl_build(ctx):
     justBootstrapPkg = ctx.var.get("justBootstrapPkg", "")
 
     cmd = """
-    set -e
-
-    
+    # START RULES.BZL
     export PATH=~/.bun/bin:$PATH
-
-    wsroot={0}
-    ci={1}
-    loglevel={2}
-    justBootstrapPkg={3}
-    pkgJsonSrcPathRel={4}
-    tgzOutRel={5}
-
-    if [ -n "$wsroot" ]; then
-        echo "bz-cli-rules:mode->dev"
-        mode=dev
-    else
-        echo "bz-cli-rules:mode->:ci"
-        mode=ci
-        wsroot=`pwd`
-    fi
-
-    pkgDir=`dirname $pkgJsonSrcPathRel`
-    pkgsDir=`dirname $pkgDir`
-    bzCliDir=util/bz-cli
-    pkgTs=$bzCliDir/pkg-cli.ts
-    tgzOut=`pwd`/$tgzOutRel
-
-    if [[ "$pkgDir" == "$justBootstrapPkg" ]]; then
-        action=bootstrap
-    else
-        action=build
-    fi
-
-    bun $pkgTs $action $wsroot/$pkgDir --ci=$ci --loglevel=$loglevel
-
-    cp $pkgDir/package.tgz $tgzOut
-    
+    wsroot={0}; if [ ! -n "$wsroot" ]; then wsroot=`pwd`; fi
+    pkgDir=`dirname {4}`
+    action=build; if [[ "$pkgDir" == "{3}" ]]; then action=bootstrap; fi
+    bun util/bz-cli/pkg-cli.ts $action $wsroot/$pkgDir --ci={1} --loglevel={2}
+    cp $pkgDir/package.tgz `pwd`/{5}
+    # END RULES.BZL
     """.format(wsroot, ci, loglevel, justBootstrapPkg, srcs[0].path, outs[0].path)+ cmdExtra
 
     ctx.actions.run_shell(

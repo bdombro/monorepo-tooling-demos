@@ -8,6 +8,20 @@
       "type": "bun",
       "internalConsoleOptions": "neverOpen",
       "request": "launch",
+      "name": "mono",
+      "program": "${workspaceFolder}/util/bz-cli/monorepo-cli.ts",
+      "cwd": "${workspaceFolder}",
+      "stopOnEntry": false,
+      "watchMode": false,
+      "env": {
+        "LOG": "1"
+      },
+      "args": ["build", "react-app"]
+    },
+    {
+      "type": "bun",
+      "internalConsoleOptions": "neverOpen",
+      "request": "launch",
       "name": "bz-cli",
       "program": "${workspaceFolder}/util/bz-cli/bz-cli.ts",
       "cwd": "${workspaceFolder}/packages/react-app",
@@ -16,7 +30,21 @@
       "env": {
         "LOG": "1"
       },
-      "args": ["watch", "."]
+      "args": ["install"]
+    },
+    {
+      "type": "bun",
+      "internalConsoleOptions": "neverOpen",
+      "request": "launch",
+      "name": "util.ts",
+      "program": "${workspaceFolder}/util/bz-cli/util.ts",
+      "cwd": "${workspaceFolder}",
+      "stopOnEntry": false,
+      "watchMode": false,
+      "env": {
+        "LOG": "4"
+      },
+      "args": ["util"]
     },
     {
       "type": "bun",
@@ -28,9 +56,38 @@
       "stopOnEntry": false,
       "watchMode": false,
       "env": {
+        "LOG": "5",
+      },
+      "args": ["build", "lib4"]
+    },
+    {
+      "type": "bun",
+      "internalConsoleOptions": "neverOpen",
+      "request": "launch",
+      "name": "pkg-cli:code",
+      "program": "${workspaceFolder}/util/bz-cli/pkg-cli.ts",
+      "cwd": "/Users/brian.dombrowski/Dev/Javascript/monorepo-tooling/code-clean/js/packages/shared-fe",
+      "stopOnEntry": false,
+      "watchMode": false,
+      "env": {
         "LOG": "5"
       },
-      "args": ["build", "lib0"]
+      "args": ["build", "."]
+    },
+    {
+      "type": "node",
+      "internalConsoleOptions": "neverOpen",
+      "request": "launch",
+      "name": "pkg-cli:code:node",
+      "program": "${workspaceFolder}/util/bz-cli/js/pkg-cli.js",
+      "cwd": "/Users/brian.dombrowski/Dev/Javascript/monorepo-tooling/code-clean/js/packages/shared-fe",
+      "stopOnEntry": false,
+      "runtimeExecutable": "/Users/brian.dombrowski/.asdf/shims/node",
+      // "watchMode": false,
+      "env": {
+        "LOG": "5"
+      },
+      "args": ["build", "."]
     },
     {
       "type": "bun",
