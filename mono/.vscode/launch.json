@@ -9,7 +9,7 @@
       "type": "bun",
       "internalConsoleOptions": "neverOpen",
       "request": "launch",
-      "program": "${workspaceFolder}/mono/monorepo-cli.ts",
+      "program": "${workspaceFolder}/mono/mono-cli.ts",
       "cwd": "${workspaceFolder}",
       "stopOnEntry": false,
       "watchMode": false,
@@ -17,6 +17,7 @@
         "LOG": "1"
       },
       "args": ["pkg", "build", "react-app"]
+      // "args": ["clean"]
     },
     {
       "name": "bz-cli",

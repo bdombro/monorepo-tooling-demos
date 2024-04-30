@@ -9,11 +9,5 @@ node_modules/
 package.tgz
 yarn-error.log
 build.log
-.bazel/bazel-bazel
-.bazel/bazel-bin
-.bazel/bazel-out
-.bazel/bazel-testlogs
-.bazel/cache
-.bazel/gcp.json
 *.bak
 *.tgz

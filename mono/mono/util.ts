@@ -25,9 +25,14 @@ export const UTIL_ENV = {
 
 /** Aliases and misc */
 
+/** Alias for any that passes eslint. Use this sparingly! */
+export type anyOk =
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  any;
+
 /** Makes a function cached (forever atm) */
 export function cachify<T extends Fnc>(fn: T) {
-  const cache: Map<any, any> = new Map();
+  const cache: Map<anyOk, anyOk> = new Map();
   return (...args: Parameters<T>): ReturnType<T> => {
     const key = JSON.stringify(args?.length ? args : "none");
     if (cache.has(key)) return cache.get(key);
@@ -38,7 +43,7 @@ export function cachify<T extends Fnc>(fn: T) {
 }
 
 /** any function */
-export type Fnc = (...args: any) => any;
+export type Fnc = (...args: anyOk) => anyOk;
 
 /** alias for Record<string, string> */
 export type Dict = Record<string, string>;
@@ -69,37 +74,39 @@ export const Is = {
 };
 
 /** makes a Dict from an array of objects, keyed by `key` */
-export const keyBy = <T extends any>(arr: T[], key: string) =>
-  arr.reduce((acc, item: any) => {
+export const keyBy = <T>(arr: T[], key: string) =>
+  arr.reduce((acc, item: anyOk) => {
     acc[item[key]] = item;
     return acc;
   }, {} as HashM<T>);
 export const keyByC = cachify(keyBy);
 
-export const md5 = (bufferOrBuffers: Buffer | Buffer[]) => {
+export const md5 = (srcOrSrcs: (string | Buffer) | (string | Buffer)[]) => {
   const hash = cryptoNode.createHash("md5");
-  if (Is.arr(bufferOrBuffers)) {
-    bufferOrBuffers.forEach((b) => hash.update(b));
+  if (Is.arr(srcOrSrcs)) {
+    srcOrSrcs.forEach((b) => hash.update(b));
   } else {
-    hash.update(bufferOrBuffers);
+    hash.update(srcOrSrcs);
   }
   return hash.digest("hex");
 };
 
 /** alias for Object */
 export const O = {
-  ass: ((...args: [any]) =>
+  ass: ((...args: [anyOk]) =>
     Object.assign(...args)) as ObjectConstructor["assign"],
-  ents: ((...args: [any]) =>
+  ents: ((...args: [anyOk]) =>
     Object.entries(...args)) as ObjectConstructor["entries"],
-  fromEnts: ((...args: [any]) =>
+  fromEnts: ((...args: [anyOk]) =>
     Object.fromEntries(...args)) as ObjectConstructor["fromEntries"],
-  vals: ((...args: [any]) =>
+  keys: ((...args: [anyOk]) =>
+    Object.values(...args)) as ObjectConstructor["keys"],
+  vals: ((...args: [anyOk]) =>
     Object.values(...args)) as ObjectConstructor["values"],
 };
 
 /** omit kets from an object */
-export const omit = <T extends Record<string, any>, K extends keyof T>(
+export const omit = <T extends Record<string, anyOk>, K extends keyof T>(
   obj: T,
   keys: readonly K[] | K[]
 ): Omit<T, K> => {
@@ -129,7 +136,7 @@ export interface PkgJson {
 }
 
 /** A return type of a promise */
-export type PReturnType<T extends (...args: any) => Promise<any>> =
+export type PReturnType<T extends (...args: anyOk) => Promise<anyOk>> =
   ReturnType<T> extends Promise<infer U> ? U : never;
 
 /**
@@ -148,7 +155,7 @@ export const pAll: typeof Promise.all = async (
  * Stack traces are the best if you throw this function
  * always pass a real Error, otherwise the stack trace will have throwError
  */
-export const stepErr = (e: any, step: string, extra: HashM<any> = {}) => {
+export const stepErr = (e: anyOk, step: string, extra: HashM<anyOk> = {}) => {
   return O.ass(e, {
     step: `${step}${e?.step ? `:${e?.step}` : ""}`,
     ...extra,
@@ -156,17 +163,18 @@ export const stepErr = (e: any, step: string, extra: HashM<any> = {}) => {
 };
 /** Convenient to .catch */
 export const stepErrCb =
-  (step: string, extra: HashM<any> = {}) =>
-  (e: any) => {
+  (step: string, extra: HashM<anyOk> = {}) =>
+  (e: anyOk) => {
     O.ass(e, { step: `${step}${e?.step ? `:${e?.step}` : ""}`, ...extra });
     throw e;
   };
 
 // Regular expression to match ANSI escape codes
 export const strAnsiEscapeExp =
+  // eslint-disable-next-line no-control-regex
   /(?:\x1B[@-Z\\-_]|\x9B|\x1B\[)[0-?]*[ -/]*[@-~]/g;
 
-export const str = (o: any, spaces?: number): string =>
+export const str = (o: anyOk, spaces?: number): string =>
   JSON.stringify(
     o,
     (k, v) => {
@@ -178,7 +186,7 @@ export const str = (o: any, spaces?: number): string =>
     spaces ? 2 : 0
   );
 
-export const str2 = (o: any): string => {
+export const str2 = (o: anyOk): string => {
   if (!o) return "";
   let s = str(o);
   if (s === "{}") return s;
@@ -216,15 +224,19 @@ export const strMatchMany = (
     includes?: RegExp[];
   }
 ) => {
-  const { excludes = [], includes = [] } = options;
-  for (let e of excludes) {
-    if (strToTestAgainst.match(e)) return;
+  const { excludes, includes } = options;
+  if (excludes) {
+    for (const e of excludes) {
+      if (strToTestAgainst.match(e)) return;
+    }
   }
-  let includeMatch = false;
-  for (let i of includes) {
-    if (strToTestAgainst.match(i)) includeMatch = true;
+  if (includes) {
+    let includeMatch = false;
+    for (const i of includes) {
+      if (strToTestAgainst.match(i)) includeMatch = true;
+    }
+    if (includes.length && !includeMatch) return;
   }
-  if (includes.length && !includeMatch) return;
   return true;
 };
 
@@ -237,37 +249,9 @@ export const strTrim = (s: string, len: number) => {
  * convenience method for throwing errors inline.
  * always pass a real Error, otherwise the stack trace will have throwError
  */
-export const throwErr = (error: any, ...extra: any): never => {
-  throw O.ass(error, extra);
+export const throwErr = (e: anyOk, ...extra: anyOk): never => {
+  throw O.ass(e, extra);
 };
-
-export class Bazel {
-  /**
-   * traverse the directory tree from __dirname to find the nearest WORKSPACE.bazel
-   * file and return the path
-   */
-  static findNearestWsRoot = async (startFrom = process.cwd()) => {
-    log4("findNearestWsRoot->start");
-    let root = startFrom;
-    while (true) {
-      // const ws = await fs.getPkgJsonFileC(`${root}`).catch(() => {});
-      // if (ws?.json.name === "root") break;
-      const configF = await import(`${root}/.monorc.ts`).catch(() => {});
-      if (configF?.config) break;
-      const next = pathNode.resolve(root, "..");
-      if (next === root) {
-        throw stepErr(
-          Error("No .monorc.ts found in the directory tree"),
-          "findNearestWsRoot"
-        );
-      }
-      root = next;
-    }
-    log4(`findNearestWsRoot->${root}`);
-    return root;
-  };
-  static findNearestWsRootC = cachify(Bazel.findNearestWsRoot);
-}
 
 // const cache: Dict<{
 //   bin: string;
@@ -286,14 +270,24 @@ export class Bazel {
 
 export class AbstractCache {
   static csumType: string;
-  add!: (key: string, data: any) => Promise<AbstractCacheStat>;
-  get!: (key: string, toPath: string) => Promise<AbstractCacheStat>;
-  stat!: (key: string) => Promise<AbstractCacheStat>;
+  add!: (
+    key: string,
+    buffer: Buffer,
+    options?: { attrs?: Dict }
+  ) => Promise<AbstractCacheStat>;
+  get!: (
+    key: string,
+    options?: { attrs?: boolean }
+  ) => Promise<AbstractCacheStat & { buffer: Buffer }>;
+  stat!: (
+    key: string,
+    options?: { attrs?: boolean }
+  ) => Promise<AbstractCacheStat>;
 }
-interface AbstractCacheStat {
-  csum: string;
-  csumType: string;
-  size: number;
+export interface AbstractCacheStat {
+  attrs: Dict;
+  key: string;
+  size: BigInt;
   ts: Date;
 }
 export class LocalCache extends AbstractCache {
@@ -304,55 +298,43 @@ export class LocalCache extends AbstractCache {
     super();
     this.path = options.path;
   }
-  add = async (key: string, filePathToAddFrom: string) => {
+  add = async (key: string, buffer: Buffer, options: { attrs?: Dict } = {}) => {
     try {
       log5(`LCACHE:put->${key}`);
+      const { attrs } = options;
       await this.init();
-
-      if (await this.stat(key).catch(() => {})) {
-        log1(`LCACHE:add ${filePathToAddFrom}->${key} already exists`);
-        return this.stat(key);
-      }
-
-      const fromStat = await fs.stat(filePathToAddFrom);
-      if (!fromStat) {
-        throw stepErr(Error(`file not found`), "LCACHE:add", {
-          filePathToAddFrom,
-        });
-      }
-      const bin = await fs.getBin(filePathToAddFrom);
       const toPath = this.cPath(key);
-      await fs.setBin(toPath, bin);
-      return this.stat(key);
-    } catch (e: any) {
+      await fs.setBin(toPath, buffer, { xattrs: attrs });
+      // get stat without attrs bc we already have attrs to save a fs call
+      const stat = this.stat(key);
+      Object.assign(stat, { attrs });
+      return stat;
+    } catch (e: anyOk) {
       throw stepErr(e, "LCACHE:add", { key });
     }
   };
-  get = async (key: string, toPath: string) => {
+  get = async (key: string, options: { attrs?: boolean } = {}) => {
     try {
       log5(`LCACHE:get->${key}`);
+      const { attrs } = options;
       await this.init();
-      const cacheStat = await this.stat(key);
-      const toBin = await fs.getBin(toPath);
-      const csumTo = await md5(toBin);
-      if (csumTo === cacheStat.csum) {
-        log1(`LCACHE:get:${key}->toPath is already up-to-date`);
-        return cacheStat;
-      }
-      const cacheBin = await fs.getBin(this.cPath(key));
-      await fs.setBin(toPath, cacheBin);
-      return cacheStat;
-    } catch (e: any) {
+      const stat = await this.stat(key, { attrs });
+      const buffer = (await fs.getBin(this.cPath(key))).buffer;
+      return {
+        ...stat,
+        buffer,
+      };
+    } catch (e: anyOk) {
       throw stepErr(e, "LCACHE.get", { key });
     }
   };
   init = cachify(async () => {
     try {
       log5("LCACHE:init");
-      const stat = await fs.stat(this.path);
+      const stat = await fs.stat(this.path).catch(() => {});
       if (stat) return;
       await fsNode.mkdir(this.path, { recursive: true });
-    } catch (e: any) {
+    } catch (e: anyOk) {
       throw stepErr(e, "LCACHE.init");
     }
   });
@@ -362,28 +344,26 @@ export class LocalCache extends AbstractCache {
     try {
       log3("LCACHE:purge");
       await this.init();
-      const { excludes = [], includes = [] } = options;
+      const { excludes, includes } = options;
       const count = await fs.purgeDir(this.path, { excludes, includes });
       return count;
-    } catch (e: any) {
+    } catch (e: anyOk) {
       throw stepErr(e, "LocalCache:purge");
     }
   };
-  stat = async (key: string) => {
+  stat = async (key: string, options: { attrs?: boolean } = {}) => {
     log5(`LCACHE:stat->${key}`);
+    const { attrs } = options;
     await this.init();
     const path = this.cPath(key);
-    const fstat = await fs.stat(path);
-    if (!fstat) throw stepErr(Error(`key not found: ${key}`), "LCACHE:stat");
-    // FIXME: figure out a way to not md5 caches to get the csum
-    // maybe i could name them `${key}-${csum}`
-    // or maybe I could store them as metadata in the filesystem?
-    const csum = await fs.md5(path);
+    const stat = await fs.stat(path, { xattrs: attrs }).catch(() => {
+      throw stepErr(Error(`key not found: ${key}`), "LCACHE:stat");
+    });
     return {
-      csum,
-      csumType: LocalCache.csumType,
-      size: fstat.size,
-      ts: new Date(fstat.mtime),
+      attrs: stat.xattrs,
+      key,
+      size: BigInt(stat.size),
+      ts: new Date(stat.mtime),
     };
   };
   cPath = (key: string) => `${this.path}/${key}`;
@@ -408,15 +388,23 @@ export class fs {
       const { text = null, moveInsteadOfCopy = false } = options;
 
       await fs.tmpDirCreate();
+      const wsRoot = await fs.findNearestWsRoot();
 
-      let backupPath =
-        `${fs.tmpDir}/` +
-        path
-          // .replace(wss.getWorkspaceCache?.path ?? "", "")
-          // .slice(1)
-          .replace(/\//g, ".") +
-        "-" +
-        new Date().toISOString().slice(11, -2).replace(/:/g, ".");
+      if (!path.startsWith(wsRoot)) {
+        throw stepErr(Error(`path not in workspace`), `wsroot`, {
+          backupPath: path,
+        });
+      }
+
+      path = fs.relative(wsRoot, path);
+
+      let backupPath = "";
+      for (let i = 0; i < Infinity; i++) {
+        backupPath =
+          `${fs.tmpDir}/${path.replace(/\//g, ".")}-` +
+          String(i).padStart(2, "0");
+        if (!(await fs.stat(backupPath).catch(() => {}))) break;
+      }
 
       if (text) {
         await fs.set(backupPath, text, { skipBackup: true });
@@ -425,14 +413,8 @@ export class fs {
       } else {
         await fs.copyFile(path, backupPath, { skipBackup: true });
       }
-    } catch (e: any) {
-      // don't throw if backup fails bc it's not critical and is often an unhandled error so will hard hault the process
-      log1(
-        O.ass(e, {
-          extra: "WARN: fs.backup failed",
-          step: `fs.backup:${e?.step}`,
-        })
-      );
+    } catch (e: anyOk) {
+      throw stepErr(e, `fs.backup:${e?.step}`);
     }
   };
 
@@ -443,34 +425,35 @@ export class fs {
       skipBackup?: boolean;
     } = {}
   ) => {
-    const toStat = await fs.stat(to);
-
     try {
-      const { skipBackup = false } = options;
-      if (!skipBackup) {
-        if (toStat) {
-          await fs.backup(to);
-          if (!(to in fs.dirtyFiles)) {
-            fs.dirtyFiles[to] = { path: to, orig: (await fs.get(to)).text };
+      const toStat = await fs.stat(to).catch(() => {});
+
+      try {
+        const { skipBackup = false } = options;
+        if (!skipBackup) {
+          if (toStat) {
+            await fs.backup(to);
+            if (!(to in fs.dirtyFiles)) {
+              fs.dirtyFiles[to] = { path: to, orig: (await fs.get(to)).text };
+            }
+          } else {
+            await fs.createdFiles.push(to);
           }
-        } else {
-          await fs.createdFiles.push(to);
         }
+      } catch (e: anyOk) {
+        throw stepErr(e, `backup`);
       }
-    } catch (e: any) {
-      throw stepErr(e, `fs.copyFile:backup->failed`);
-    }
 
-    if (toStat?.isDirectory()) {
-      to = `${to}/${fs.basename(from)}`;
-    }
+      if (toStat?.isDirectory()) {
+        to = `${to}/${fs.basename(from)}`;
+      }
 
-    await fsNode.copyFile(from, to).catch((e) => {
-      throw stepErr(
-        Error(`${e.message};\nfrom:${from}\nto:${to}`),
-        `fs.copyFile`
-      );
-    });
+      await fsNode.copyFile(from, to).catch((e) => {
+        throw stepErr(e, "copyFile");
+      });
+    } catch (e: anyOk) {
+      throw stepErr(e, `fs.copyFile`, { from, to });
+    }
   };
 
   static createdFiles: string[] = [];
@@ -482,36 +465,87 @@ export class fs {
     path: string;
   }> = {};
 
+  /**
+   * traverse the directory tree from __dirname to find the nearest package.json
+   * with name=root or .monorc.ts. If none found, throw an error.
+   */
+  static findNearestWsRoot = cachify(async (startFrom = process.cwd()) => {
+    log4("findNearestWsRoot->start");
+    let root = startFrom;
+    while (true) {
+      const ws = await fs.getPkgJsonFileC(root).catch(() => {});
+      if (ws?.json.name === "root") break;
+      const configF = await import(`${root}/.monorc.ts`).catch(() => {});
+      if (configF?.config) break;
+      const next = fs.resolve(root, "..");
+      if (next === root) {
+        throw stepErr(
+          Error(
+            "No package.json:name=root or .monorc.ts found in the directory tree"
+          ),
+          "findNearestWsRoot"
+        );
+      }
+      root = next;
+    }
+    log4(`findNearestWsRoot->${root}`);
+    return root;
+  });
+
   /** get's a file object */
-  static get = async (path: string) => {
-    const text = await fsNode.readFile(path, "utf-8").catch(() => {
-      throw stepErr(Error(`file not found: ${path}`), `fs.get`);
-    });
-    const file = {
-      /** resets the file to the original state when first read */
-      reset: async () => {
-        log5(`fs.get->reset ${path}`);
-        await fs.set(path, text);
-        log5(`fs.get->reset-success ${path}`);
-      },
-      save: async () => fs.set(path, file.text),
-      set: (newText: string) => fs.set(path, newText),
-      text,
-    };
-    return file;
+  static get = async (
+    path: string,
+    options: {
+      xattrs?: boolean;
+    } = {}
+  ) => {
+    try {
+      const { xattrs } = options;
+      const text = await fsNode.readFile(path, "utf-8").catch(() => {
+        throw stepErr(Error(`fg:file not found`), `readfile`);
+      });
+      const file = {
+        /** resets the file to the original state when first read */
+        reset: async () => {
+          log5(`fs.get->reset ${path}`);
+          await fs.set(path, text).catch((e) => {
+            throw stepErr(e, `fs.get.reset`, { rstPath: path });
+          });
+          log5(`fs.get->reset-success ${path}`);
+        },
+        save: async () => fs.set(path, file.text),
+        set: (newText: string) => fs.set(path, newText),
+        xattrs: xattrs ? await fs.getXattrs(path) : {},
+        text,
+      };
+      return file;
+    } catch (e: anyOk) {
+      throw stepErr(e, `fs.get`, { getPath: path });
+    }
   };
   /** get's a file object from cache or fs */
   static getC = cachify(fs.get);
 
-  static getBin = async (path: string) => {
-    const bin = await fsNode.readFile(path).catch(() => {
-      throw stepErr(Error(`file not found`), `fs.getBin`, { binPath: path });
+  static getBin = async (
+    path: string,
+    options: {
+      xattrs?: boolean;
+    } = {}
+  ) => {
+    const { xattrs } = options;
+    const buffer = await fsNode.readFile(path).catch(() => {
+      throw stepErr(Error(`fgb:file not found`), `fs.getBin`, {
+        binPath: path,
+      });
     });
-    return bin;
+    return {
+      buffer,
+      xattrs: xattrs ? await fs.getXattrs(path) : {},
+    };
   };
 
   /** get json file */
-  static getJsonFile = async <T extends any>(path: string) => {
+  static getJsonFile = async <T>(path: string) => {
     const file = await fs.get(path);
     const json = JSON.parse(file.text) as T;
     const jsonF = {
@@ -527,7 +561,7 @@ export class fs {
       /** will save to fs whatever the current values in json are */
       save: async () => jsonF.setJson(jsonF?.json),
       /** will set the json and write it to disk */
-      setJson: async (json: any) => file.set(str(json, 2) + "\n"),
+      setJson: async (json: anyOk) => file.set(str(json, 2) + "\n"),
     };
     return jsonF;
   };
@@ -542,6 +576,19 @@ export class fs {
   };
   /** get package.json file from cache or fs */
   static getPkgJsonFileC = cachify(fs.getPkgJsonFile);
+
+  static getXattrs = async (path: string) => {
+    const xattrs = await sh.exec(`xattr -l ${path}`).then((res) => {
+      return res.split("\n").reduce<Dict>((acc, line) => {
+        const [name, value] = line.split(":");
+        if (name && value) {
+          acc[name.trim()] = value.trim();
+        }
+        return acc;
+      }, {});
+    });
+    return xattrs;
+  };
 
   static home = osNode.homedir();
 
@@ -561,93 +608,97 @@ export class fs {
       typeFilter?: "file" | "dir";
     } = {}
   ): Promise<string[]> => {
-    // log4(`fs:ls:start->${path}`);
+    try {
+      log5(`fs:ls:start->${pathToLs}`);
 
-    if (pathToLs[0] !== "/")
-      pathToLs = pathNode.resolve(process.cwd(), pathToLs);
+      if (pathToLs[0] !== "/")
+        pathToLs = pathNode.resolve(process.cwd(), pathToLs);
 
-    const {
-      currentDepth = 0,
-      excludes = [],
-      includes = [],
-      maxDepth = Infinity,
-      recursive = false,
-      relative = false,
-      typeFilter,
-    } = options;
+      const {
+        currentDepth = 0,
+        excludes = [],
+        includes,
+        maxDepth = Infinity,
+        recursive = false,
+        relative = false,
+        typeFilter,
+      } = options;
 
-    excludes.push(...[/.DS_Store/]);
+      excludes.push(...[/.DS_Store/]);
 
-    let paths: string[] = [];
-    await fsNode
-      .readdir(pathToLs, { withFileTypes: true })
-      .then(async (rdResults) =>
-        P.all(
-          rdResults.map(async (rdResult) => {
-            const shouldInclude = strMatchMany(rdResult.name, {
-              excludes,
-              includes,
-            });
-            if (!shouldInclude) return;
-
-            const rdResAbsPath = `${pathToLs}/${rdResult.name}`;
-            const isDir = rdResult.isDirectory();
-            const isFile = rdResult.isFile();
-
-            if (isDir && recursive && currentDepth < maxDepth) {
-              const lsPaths = await fs.ls(rdResAbsPath, {
-                currentDepth: currentDepth + 1,
+      let paths: string[] = [];
+      await fsNode
+        .readdir(pathToLs, { withFileTypes: true })
+        .then(async (rdResults) =>
+          P.all(
+            rdResults.map(async (rdResult) => {
+              const shouldInclude = strMatchMany(rdResult.name, {
                 excludes,
-                maxDepth,
-                recursive,
-                typeFilter,
+                includes,
               });
-              paths.push(...lsPaths);
-            }
-            if (typeFilter) {
-              if (typeFilter === "dir" && !isDir) return false;
-              if (typeFilter === "file" && !isFile) return false;
-            }
-            paths.push(rdResAbsPath);
-          })
-        )
-      );
+              if (!shouldInclude) return;
 
-    if (relative && currentDepth === 0) {
-      paths = paths.map((p) => fs.pathRel(pathToLs, p));
+              const rdResAbsPath = `${pathToLs}/${rdResult.name}`;
+              const isDir = rdResult.isDirectory();
+              const isFile = rdResult.isFile();
+
+              if (isDir && recursive && currentDepth < maxDepth) {
+                const lsPaths = await fs.ls(rdResAbsPath, {
+                  currentDepth: currentDepth + 1,
+                  excludes,
+                  maxDepth,
+                  recursive,
+                  typeFilter,
+                });
+                paths.push(...lsPaths);
+              }
+              if (typeFilter) {
+                if (typeFilter === "dir" && !isDir) return false;
+                if (typeFilter === "file" && !isFile) return false;
+              }
+              paths.push(rdResAbsPath);
+            })
+          )
+        )
+        .catch(() => {
+          throw stepErr(Error("Path not found"), `readdir`);
+        });
+
+      if (relative && currentDepth === 0) {
+        paths = paths.map((p) => fs.pathRel(pathToLs, p));
+      }
+      if (currentDepth === 0) paths.sort();
+      return paths;
+    } catch (e) {
+      throw stepErr(e, `fs.ls`, { pathToLs });
     }
-    if (currentDepth === 0) paths.sort();
-    return paths;
   };
   static lsC = cachify(fs.ls);
 
   /** md5s the recursive contents of files and paths */
   static md5 = async (
     filePathOrPaths: string | string[],
-    options: { excludes?: RegExp[]; includes?: RegExp[] } = {}
+    options: { excludes?: RegExp[]; includes?: RegExp[]; salts?: string[] } = {}
   ) => {
     try {
       if (!Is.arr(filePathOrPaths)) filePathOrPaths = [filePathOrPaths];
-      const { excludes = [], includes = [] } = options;
+      const { excludes, includes, salts = [] } = options;
       const buffers: Buffer[] = [];
       await P.all(
         filePathOrPaths.map(async (path) => {
-          for (let e of excludes) {
-            if (path.match(e)) return;
-          }
-          let includeMatch = false;
-          for (let i of includes) {
-            if (path.match(i)) includeMatch = true;
-          }
-          if (includes.length && !includeMatch) return;
+          const shouldInclude = strMatchMany(path, {
+            excludes,
+            includes,
+          });
+          if (!shouldInclude) return;
 
-          const stat = await fs.stat(path);
-          if (!stat)
-            throw stepErr(Error(`file not found`), `stat`, {
-              statPath: path,
+          const stat = await fs.stat(path).catch(() => {
+            throw stepErr(Error(`fsm:File not found`), "stat", {
+              md5Path: path,
             });
+          });
           if (stat.isFile()) {
-            buffers.push(await fs.getBin(path));
+            buffers.push((await fs.getBin(path)).buffer);
           } else {
             const pathsRecursive = await fs.ls(path, {
               ...options,
@@ -655,13 +706,15 @@ export class fs {
               typeFilter: "file",
             });
             buffers.push(
-              ...(await P.all(pathsRecursive.map((p) => fs.getBin(p))))
+              ...(await P.all(
+                pathsRecursive.map((p) => fs.getBin(p).then((r) => r.buffer))
+              ))
             );
           }
         })
       );
-      return md5(buffers);
-    } catch (e: any) {
+      return md5([...buffers, ...salts]);
+    } catch (e: anyOk) {
       throw stepErr(e, `fs.md5`);
     }
   };
@@ -673,17 +726,20 @@ export class fs {
     options: { excludes?: RegExp[]; includes?: RegExp[] } = {}
   ) => {
     try {
-      const { excludes = [], includes = [] } = options;
-      const todo = await fs.ls(path, { includes, excludes });
+      const { excludes, includes } = options;
+      const todo = await fs
+        .ls(path, { includes, excludes, recursive: false })
+        .catch(() => []);
       if (!todo?.length) return 0;
-      await P.all(todo.map((f) => fs.rm(`${path}/${f}`, { skipBackup: true })));
+      await P.all(todo.map((f) => fs.rm(f, { skipBackup: true })));
       return todo.length;
-    } catch (e: any) {
+    } catch (e: anyOk) {
       throw stepErr(e, `fs.purgeDir`, { path });
     }
   };
 
   static read = fs.get;
+  static relative = pathNode.relative;
 
   static rename = async (
     from: string,
@@ -699,7 +755,7 @@ export class fs {
         if (!(from in fs.dirtyFiles)) {
           fs.dirtyFiles[from] = { path: from, orig: (await fs.get(from)).text };
         }
-        if (await fs.stat(to)) {
+        if (await fs.stat(to).catch(() => {})) {
           await fs.backup(to);
           if (!(to in fs.dirtyFiles)) {
             fs.dirtyFiles[to] = { path: to, orig: (await fs.get(to)).text };
@@ -708,7 +764,7 @@ export class fs {
           fs.createdFiles.push(to);
         }
       }
-    } catch (e: any) {
+    } catch (e: anyOk) {
       throw O.ass(Error(e), { step: `fs.rename:backup->failed` });
     }
     await fsNode.rename(from, to).catch((e) => {
@@ -728,15 +784,21 @@ export class fs {
           fs.set(df.path, df.orig, { skipBackup: true })
         )
       );
-      await P.all(fs.createdFiles.map((cf) => fs.rm(cf, { skipBackup: true })));
-    } catch (e: any) {
+      await P.all(
+        fs.createdFiles.map((cf) =>
+          fs.rm(cf, { skipBackup: true }).catch(() => {})
+        )
+      );
+    } catch (e: anyOk) {
       throw stepErr(e, "fs.resetChangedFiles");
     }
   };
 
+  static resolve = pathNode.resolve;
+
   static fileURLToPath = urlNode.fileURLToPath;
 
-  /** wrapper for fs.rm with defaults and option to ignore not-found */
+  /** wrapper for fs.rm with defaults and filters */
   static rm = async (
     path: string,
     options: Parameters<(typeof fsNode)["rm"]>[1] & {
@@ -744,83 +806,137 @@ export class fs {
     } = {}
   ) => {
     try {
-      const { skipBackup = false, ...restOptions } = options;
-      const isFile = (await fs.stat(path))?.isFile();
+      const { force, recursive = true, skipBackup = true } = options;
+      const stat = await fs.stat(path).catch(() => {});
+      if (!stat) {
+        if (force) return;
+        throw stepErr(Error(`frm:path not found`), "stat", { rmPath: path });
+      }
+      const isFile = stat.isFile();
       if (!skipBackup && !(path in fs.dirtyFiles) && isFile) {
         fs.dirtyFiles[path] = { path, orig: (await fs.get(path)).text };
       }
       if (isFile) {
         return fsNode.unlink(path);
       } else {
-        if (!("recursive" in restOptions)) restOptions.recursive = true;
-        if (!("force" in restOptions)) restOptions.force = true;
-        return fsNode.rm(path, restOptions);
+        return fsNode.rm(path, { force, recursive });
       }
-    } catch (e: any) {
-      throw stepErr(e, "fs.rm", { cmd: `fs:rm->${path}` });
+    } catch (e: anyOk) {
+      throw stepErr(e, "fs.rm", { rmPath: `path` });
     }
   };
 
   static set = async (
-    to: string,
+    toPath: string,
     text: string,
     options: {
       skipBackup?: boolean;
+      xattrs?: Dict;
+    } = {}
+  ) => {
+    const { skipBackup = false, xattrs } = options;
+    try {
+      if (!skipBackup) {
+        if (await fs.stat(toPath).catch(() => {})) {
+          await fs.backup(toPath);
+          if (!(toPath in fs.dirtyFiles)) {
+            fs.dirtyFiles[toPath] = {
+              path: toPath,
+              orig: (await fs.get(toPath)).text,
+            };
+          }
+        } else {
+          fs.createdFiles.push(toPath);
+        }
+      }
+    } catch (e: anyOk) {
+      throw stepErr(e, `fs.set:backup->failed`);
+    }
+    await fsNode.writeFile(toPath, text, "utf8").catch((e) => {
+      throw stepErr(Error(e.message), `fs.set:write`, { setPath: toPath });
+    });
+    if (xattrs) {
+      await fs.setXattrs(toPath, xattrs);
+    }
+  };
+
+  static setBin = async (
+    toPath: string,
+    bin: Buffer,
+    options: {
+      xattrs?: Dict;
+    } = {}
+  ) => {
+    const { xattrs } = options;
+    await fsNode.writeFile(toPath, bin).catch((e) => {
+      throw stepErr(Error(`${e.message}; to:${toPath}`), `fs.setBin`);
+    });
+    if (xattrs) {
+      await fs.setXattrs(toPath, xattrs);
+    }
+  };
+
+  static setXattrs = async (toPath: string, xattrs: Dict) => {
+    try {
+      const ents = O.ents(xattrs);
+      if (!ents.length) {
+        throw stepErr(Error(`Empty xattrs`), `check`);
+      }
+      const cmds = ents.map(([k, v]) => {
+        if (["", null, undefined].includes(k) || !Is.str(k)) {
+          throw stepErr(Error(`Bad key value`), `check-key`, { key: k });
+        }
+        if (["", null, undefined].includes(v) || !Is.str(k)) {
+          throw stepErr(Error(`Bad value`), `check-val`, { val: v });
+        }
+        return `xattr -w ${k} "${v}" ${toPath}`;
+      });
+      await sh.exec(cmds.join("; ")).catch((e) => {
+        throw stepErr(e, `set`);
+      });
+    } catch (e) {
+      throw stepErr(e, `fs.setXattrs`, { setXattrsPath: toPath, xattrs });
+    }
+  };
+
+  /** gets fs.stat + xattr */
+  static stat = async (
+    path: string,
+    options: {
+      xattrs?: boolean;
     } = {}
   ) => {
     try {
-      const { skipBackup = false } = options;
-      if (!skipBackup) {
-        if (await fs.stat(to)) {
-          await fs.backup(to);
-          if (!(to in fs.dirtyFiles)) {
-            fs.dirtyFiles[to] = { path: to, orig: (await fs.get(to)).text };
-          }
-        } else {
-          fs.createdFiles.push(to);
-        }
+      const { xattrs: incXattrs } = options;
+      const stat = await fsNode.stat(path);
+      let xattrs = {};
+      if (incXattrs) {
+        xattrs = await fs.getXattrs(path);
       }
-    } catch (e: any) {
-      throw stepErr(e, `fs.set:backup->failed`);
+      O.ass(stat, { xattrs });
+      return stat as PReturnType<typeof fsNode.stat> & { xattrs: Dict };
+    } catch (e) {
+      throw stepErr(Error("fsc:File not found"), "fs.stat", {
+        statPath: path,
+      });
     }
-    await fsNode.writeFile(to, text, "utf8").catch((e) => {
-      throw stepErr(Error(`${e.message}; to:${to}`), `fs.set`);
-    });
-  };
-
-  static setBin = async (to: string, bin: Buffer) => {
-    await fsNode.writeFile(to, bin).catch((e) => {
-      throw stepErr(Error(`${e.message}; to:${to}`), `fs.setBin`);
-    });
-  };
-
-  /** gets fs.stat + xattr or null */
-  static stat = async (path: string) => {
-    const fstat = await fsNode.stat(path);
-    const xstat = sh.exec(`xattr -l ${path}`).then((res) => {
-      return res.split("\n").reduce<Dict>((acc, line) => {
-        const [name, value] = line.split(":");
-        if (name && value) {
-          acc[name.trim()] = value.trim();
-        }
-        return acc;
-      }, {});
-    });
-    return { ...fstat, xstat };
   };
 
   static tmpDir =
-    `${fs.home}/.mono/runs` +
+    `${fs.home}/.mono/runs/` +
     new Date()
       .toISOString()
       .slice(0, 19)
-      .replace(/(\-|T|:)/g, ".");
+      .replace(/(-|T|:)/g, ".");
   static tmpDirCreate = cachify(async () => {
-    return utilNode
-      .promisify(childProcessNode.exec)(`mkdir -p ${fs.tmpDir}`)
-      .catch((e) => {
-        throw stepErr(e, `fs.tmpDirCreate`);
-      });
+    return (
+      utilNode
+        // FIXME: use fs instead of exec
+        .promisify(childProcessNode.exec)(`mkdir -p ${fs.tmpDir}`)
+        .catch((e) => {
+          throw stepErr(e, `fs.tmpDirCreate`);
+        })
+    );
   });
   static tmpDirPurge = async () => {
     log2("purgeTmpDir");
@@ -871,7 +987,7 @@ export class sh {
     cmd: string,
     options: {
       /** cb for logs on a lineArray.filter */
-      logFilter?: (text: string) => any;
+      logFilter?: (text: string) => boolean;
       rawOutput?: boolean;
       silent?: boolean;
       throws?: boolean;
@@ -893,14 +1009,12 @@ export class sh {
     const prefix = `sh:${id}:`;
 
     let _log1 = log1;
-    let _log2 = log2;
-    let _log3 = log3;
     let _log4 = log4;
     if (verbose) {
-      _log1 = _log2 = _log3 = _log4 = log1;
+      _log1 = _log4 = log1;
     }
     if (silent) {
-      _log1 = _log2 = _log3 = _log4 = log9;
+      _log1 = _log4 = log9;
     }
 
     /** Special handle the logging of the stdout/err */
@@ -931,21 +1045,20 @@ export class sh {
         .filter(logFilter)
         .map((l) => {
           l = l.trim();
-          const cwdExp = new RegExp(process.cwd(), "g");
-          l = l.replace(cwdExp, "wd:");
+          l = l.replace(process.cwd(), "wd:");
           return l;
         })
         .filter(Boolean);
       allout += lines.join("\n") + "\n";
-      _logOut(lines.map((l) => `${prefix} ${l}`).join("\n") + "\n");
+      _logOut(lines.map((l) => `${prefix} ${l}`).join("\n"));
     };
 
-    _log3(`${prefix} cmd='${strTrim(cmd, 300)}'`);
+    _log4(`${prefix} cmd='${strTrim(cmd, 300)}'`);
     log9(`${prefix}:${id} cmdFull='${cmd}'`);
     _log4(`${prefix} cwd=${wd}`);
 
     const cmdFinal = options.wd ? `cd ${wd} && ${cmd} 2>&1` : cmd;
-    let execP = P.wr<string>();
+    const execP = P.wr<string>();
     const cp = childProcessNode.spawn(cmdFinal, { shell: true });
     cp.stdout.on("data", (data) => logOut(data.toString()));
     cp.stderr.on("data", (data) => logOut(data.toString()));
@@ -990,7 +1103,7 @@ export class sh {
 }
 
 export class Log {
-  static appendLogFilePromises: Promise<any>[] = [];
+  static appendLogFilePromises: Promise<void>[] = [];
   static file = `${fs.tmpDir}/run.log`;
   public logLevel = UTIL_ENV.logLevel;
   public prefix: string;
@@ -1015,19 +1128,19 @@ export class Log {
    * 9: don't print to console, only to log file
    */
   logn(n: number) {
-    const logFnc = async (...args: any) => {
+    const logFnc = (...args: anyOk) => {
       /** determines how much logging is printed to the console. Higher is more. */
       this.logLevel = UTIL_ENV.logLevel;
-      let isErr = args[0] instanceof Error;
+      const isErr = args[0] instanceof Error;
 
       // This debug line helps find empty log calls
       // if ([...args].join("").trim() === "") console.trace();
 
       if (n === 0) {
         console.log(...args);
-        fs.tmpDirCreate().then(() => {
-          fsNode.appendFile(Log.file, args.join(" ") + "\n");
-        });
+        void fs
+          .tmpDirCreate()
+          .then(() => fsNode.appendFile(Log.file, args.join(" ") + "\n"));
         return args;
       }
 
@@ -1047,7 +1160,7 @@ export class Log {
 
       // skip logging to console if the log message level is higher than the log level
       if (this.logLevel >= n) {
-        let argsExtra = args;
+        const argsExtra = args;
         if (Is.str(args[0])) {
           if (args[0].match(/INFO/)) args[0] = Log.colors.cyan(args[0]);
           if (args[0].match(/ERROR/)) args[0] = Log.colors.red(args[0]);
@@ -1063,24 +1176,25 @@ export class Log {
       }
 
       // lazily log to file
-      await fs.tmpDirCreate();
-      let txt = "";
-      if (isErr) {
-        let lines = [];
-        // dump of the error in a the way that mimics console
-        lines.push(args[0].stack + " {");
-        lines.push(...O.ents(args[0]).map(([k, v]) => `  ${k}: ${v}`));
-        lines.push("}");
-        txt = lines.join("\n") + "\n";
-      } else {
-        let lines = [];
-        lines.push(`${ts} L${n}`);
-        const hasObjs = args.some((a: any[]) => Is.obj(a));
-        if (!hasObjs) lines[0] += ` ${args.join(" ")}`;
-        else lines.push(...args.map(str));
-        txt = lines.join(" ") + "\n";
-      }
-      Log.appendLogFilePromises.push(fsNode.appendFile(Log.file, txt)); // be lazy about it
+      void fs.tmpDirCreate().then(() => {
+        let txt = "";
+        if (isErr) {
+          const lines = [];
+          // dump of the error in a the way that mimics console
+          lines.push(args[0].stack + " {");
+          lines.push(...O.ents(args[0]).map(([k, v]) => `  ${k}: ${v}`));
+          lines.push("}");
+          txt = lines.join("\n") + "\n";
+        } else {
+          const lines = [];
+          lines.push(`${ts} L${n}`);
+          const hasObjs = args.some((a: anyOk[]) => Is.obj(a));
+          if (!hasObjs) lines[0] += ` ${args.join(" ")}`;
+          else lines.push(...args.map(str));
+          txt = lines.join(" ") + "\n";
+        }
+        Log.appendLogFilePromises.push(fsNode.appendFile(Log.file, txt)); // be lazy about it
+      });
 
       return args;
 
@@ -1093,30 +1207,30 @@ export class Log {
    * a special level that means don't decorate at all, like if were
    * calling another library that has its own logging decorations
    */
-  l0 = (...args: any) => {
+  l0 = (...args: anyOk) => {
     return this.logn(0)(...args);
   };
-  l1 = (...args: any) => {
+  l1 = (...args: anyOk) => {
     return this.logn(1)(...args);
   };
-  l2 = (...args: any) => {
+  l2 = (...args: anyOk) => {
     return this.logn(2)(...args);
   };
-  l3 = (...args: any) => {
+  l3 = (...args: anyOk) => {
     return this.logn(3)(...args);
   };
-  l4 = (...args: any) => {
+  l4 = (...args: anyOk) => {
     return this.logn(4)(...args);
   };
-  l5 = (...args: any) => {
+  l5 = (...args: anyOk) => {
     return this.logn(5)(...args);
   };
   /** High number that's used mainly to print to log file without console  */
-  l9 = (...args: any) => {
+  l9 = (...args: anyOk) => {
     return this.logn(9)(...args);
   };
 
-  lErrCtx = (e: any) => {
+  lErrCtx = (e: anyOk) => {
     log1(`Error: ${e.message}`);
     this.l1(e);
     this.l1(
@@ -1130,7 +1244,7 @@ export class Log {
     );
   };
 
-  lFinish = async (maybeErr?: any) => {
+  lFinish = async (maybeErr?: anyOk) => {
     if (maybeErr) this.lErrCtx(maybeErr);
     this.l1(`LOG->${Log.file}`);
     await Log.waitForlogFileSettled();
@@ -1217,7 +1331,7 @@ export class Yarn {
         ]);
       }
       log4("cleanYarnCache->end");
-    } catch (e: any) {
+    } catch (e: anyOk) {
       throw stepErr(e, "cleanYarnCache");
     }
   };
