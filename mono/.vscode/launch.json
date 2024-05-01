@@ -16,7 +16,8 @@
       "env": {
         "LOG": "1"
       },
-      "args": ["pkg", "build", "react-app"]
+      // "args": ["build", "react-app"]
+      "args": ["build", "lib3"]
       // "args": ["clean"]
     },
     {

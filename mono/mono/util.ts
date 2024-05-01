@@ -55,10 +55,12 @@ export type HashM<T> = Record<string, T>;
 export const Is = {
   /** alias for Array.isArray */
   arr: Array.isArray,
-  /** checks if a var is a boolean */
-  bool: (a: unknown): a is boolean => typeof a === "boolean",
   /** checks if a var is a bigint */
   bigint: (a: unknown): a is bigint => typeof a === "bigint",
+  /** checks if a var is a boolean */
+  bool: (a: unknown): a is boolean => typeof a === "boolean",
+  /** Checks if a var is a buffer */
+  buffer: Buffer.isBuffer,
   /** checks if a var is a date */
   date: (a: unknown): a is Date => a instanceof Date,
   /** checks if object, ie basically unknown */
@@ -81,26 +83,41 @@ export const keyBy = <T>(arr: T[], key: string) =>
   }, {} as HashM<T>);
 export const keyByC = cachify(keyBy);
 
-export const md5 = (srcOrSrcs: (string | Buffer) | (string | Buffer)[]) => {
+export const md5 = (srcOrSrcs: anyOk) => {
   const hash = cryptoNode.createHash("md5");
-  if (Is.arr(srcOrSrcs)) {
-    srcOrSrcs.forEach((b) => hash.update(b));
-  } else {
-    hash.update(srcOrSrcs);
-  }
-  return hash.digest("hex");
+  let srcs = srcOrSrcs as (string | Buffer)[];
+  if (!Is.arr(srcOrSrcs)) srcs = [srcOrSrcs];
+  srcs.forEach((b) => {
+    if (Is.obj(b)) b = str(b);
+    if (!Is.buffer(b)) b = `${b}`;
+    hash.update(b);
+  });
+  return hash.digest("base64url");
 };
 
-/** alias for Object */
+/** aliases for Object */
 export const O = {
+  /** An alias for Object.assign */
   ass: ((...args: [anyOk]) =>
     Object.assign(...args)) as ObjectConstructor["assign"],
+  /** An alias for Object.entries */
   ents: ((...args: [anyOk]) =>
     Object.entries(...args)) as ObjectConstructor["entries"],
+  /** An alias for Object.fromEntries */
   fromEnts: ((...args: [anyOk]) =>
     Object.fromEntries(...args)) as ObjectConstructor["fromEntries"],
+  /** An alias for Object.keys */
   keys: ((...args: [anyOk]) =>
-    Object.values(...args)) as ObjectConstructor["keys"],
+    Object.keys(...args)) as ObjectConstructor["keys"],
+  /** returns a copy of an obj sorted by key */
+  sort: <T extends HashM<anyOk>>(obj: T): T =>
+    O.keys(obj)
+      .toSorted()
+      .reduce((result: anyOk, key: string) => {
+        result[key] = obj[key];
+        return result;
+      }, {}),
+  /** An alias for Object.values */
   vals: ((...args: [anyOk]) =>
     Object.values(...args)) as ObjectConstructor["values"],
 };
@@ -313,12 +330,11 @@ export class LocalCache extends AbstractCache {
       throw stepErr(e, "LCACHE:add", { key });
     }
   };
-  get = async (key: string, options: { attrs?: boolean } = {}) => {
+  get = async (key: string) => {
     try {
       log5(`LCACHE:get->${key}`);
-      const { attrs } = options;
       await this.init();
-      const stat = await this.stat(key, { attrs });
+      const stat = await this.stat(key, { attrs: true });
       const buffer = (await fs.getBin(this.cPath(key))).buffer;
       return {
         ...stat,
@@ -532,16 +548,20 @@ export class fs {
       xattrs?: boolean;
     } = {}
   ) => {
-    const { xattrs } = options;
-    const buffer = await fsNode.readFile(path).catch(() => {
-      throw stepErr(Error(`fgb:file not found`), `fs.getBin`, {
-        binPath: path,
+    try {
+      const { xattrs } = options;
+      const buffer = await fsNode.readFile(path).catch(() => {
+        throw stepErr(Error(`fgb:file not found`), `fs.getBin`, {
+          binPath: path,
+        });
       });
-    });
-    return {
-      buffer,
-      xattrs: xattrs ? await fs.getXattrs(path) : {},
-    };
+      return {
+        buffer,
+        xattrs: xattrs ? await fs.getXattrs(path) : {},
+      };
+    } catch (e: anyOk) {
+      throw stepErr(e, `fs.getBin`, { getBinPath: path });
+    }
   };
 
   /** get json file */
@@ -577,17 +597,24 @@ export class fs {
   /** get package.json file from cache or fs */
   static getPkgJsonFileC = cachify(fs.getPkgJsonFile);
 
-  static getXattrs = async (path: string) => {
-    const xattrs = await sh.exec(`xattr -l ${path}`).then((res) => {
-      return res.split("\n").reduce<Dict>((acc, line) => {
-        const [name, value] = line.split(":");
-        if (name && value) {
-          acc[name.trim()] = value.trim();
-        }
-        return acc;
-      }, {});
-    });
-    return xattrs;
+  /** Gets xattrs (extended attributes) from a file, sorted by key */
+  static getXattrs = async (path: string): Promise<Dict> => {
+    try {
+      const xattrs = await sh
+        .exec(`xattr -l ${path}`, { silent: true })
+        .then((res) => {
+          return res.split("\n").reduce<Dict>((acc, line) => {
+            const [name, value] = line.split(":");
+            if (name && value) {
+              acc[name.trim()] = value.trim();
+            }
+            return acc;
+          }, {});
+        });
+      return O.sort(xattrs);
+    } catch (e) {
+      throw stepErr(e, `fs.getXattrs`, { getXattrsPath: path });
+    }
   };
 
   static home = osNode.homedir();
@@ -876,6 +903,7 @@ export class fs {
     }
   };
 
+  /** sets xattrs (extended attributes) to a file */
   static setXattrs = async (toPath: string, xattrs: Dict) => {
     try {
       const ents = O.ents(xattrs);
@@ -988,6 +1016,7 @@ export class sh {
     options: {
       /** cb for logs on a lineArray.filter */
       logFilter?: (text: string) => boolean;
+      prefix?: string;
       rawOutput?: boolean;
       silent?: boolean;
       throws?: boolean;
@@ -996,17 +1025,16 @@ export class sh {
       wd?: string;
     } = {}
   ): Promise<string> => {
+    const id = (sh.execCount = (sh.execCount ?? 0) + 1);
     const {
       logFilter = () => true,
+      prefix = `sh:${id}:`,
       rawOutput = false,
       silent = false,
       throws = true,
       verbose = false,
       wd = process.cwd(),
     } = options;
-
-    const id = (sh.execCount = (sh.execCount ?? 0) + 1);
-    const prefix = `sh:${id}:`;
 
     let _log1 = log1;
     let _log4 = log4;

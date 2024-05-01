@@ -31,6 +31,7 @@ import chokidar from "chokidar";
 import {
   anyOk,
   cachify,
+  Dict,
   HashM,
   fs,
   LocalCache,
@@ -46,12 +47,14 @@ import {
   UTIL_ENV,
   Yarn,
   AbstractCacheStat,
+  md5,
 } from "./util.js";
 
 const __filename = fs.fileURLToPath(import.meta.url);
 const __dirname = fs.dirname(__filename);
+const isCalledFromCli = import.meta.url === `file://${process.argv[1]}`;
 
-const log = new Log({ prefix: "MONO:" });
+const log = new Log({ prefix: isCalledFromCli ? "" : "MONO" });
 const log0 = log.l0;
 const log1 = log.l1;
 const log2 = log.l2;
@@ -95,7 +98,7 @@ export class Main {
   build: bootstrap + build + pack
   sync: rsyncs the builds of all cross-linked packages with 
   watch: sync with watch mode
-  `;
+  `.replace(/^  /gm, "");
 
   allArgs = process.argv.slice(2);
 
@@ -117,7 +120,7 @@ export class Main {
   });
 
   run = async () => {
-    this.args._.shift(); // remove the "mono" command
+    // this.args._.shift(); // remove the "mono" command
     const action = this.args._.shift();
 
     const { allArgs, args, pkgPathOrNames, pkgPathOrNameOrUsage, usage } = this;
@@ -138,6 +141,11 @@ export class Main {
     if (args["--show-loglevels"])
       log.showLogLevels = logDefault.showLogLevels = true;
 
+    const start = new Date();
+
+    log1(
+      `${action.toUpperCase()}->start ${MONO_ENV.ci ? "" : start.toISOString()}`
+    );
     log3(`>${allArgs.join(" ")}`);
     log4(`>ENV CI=${MONO_ENV.ci} logLevel=${MONO_ENV.logLevel}`);
 
@@ -189,6 +197,7 @@ export class Main {
           break;
         }
         default:
+          console.log("Invalid action\n");
           return console.log(usage);
       }
     } catch (e: anyOk) {
@@ -197,6 +206,7 @@ export class Main {
     }
 
     await log.lFinish();
+    log1(`${action.toUpperCase()}->success ${Time.diff(start)}`);
   };
 
   getPkg = async (pkgPathOrName: string) => {
@@ -323,6 +333,9 @@ export class PkgWGetSets extends PkgWLogs {
   get basename() {
     return fs.basename(this.pathAbs);
   }
+  get bldArtifactPath() {
+    return `${this.pathAbs}/package.tgz`;
+  }
   get domain() {
     return this.json.name.split("/")[0];
   }
@@ -384,19 +397,16 @@ export class Pkg extends PkgWGetSets {
 
       await this.buildDeps({ noCache });
 
-      // FIXME: We are re-build if any of the deps changed, but we could be smarter
-      // and compare csums of changed deps with the cache for this package. Could
-      // possible skip a rebuild if a dep changed to a prior cached state.
       if (!noCache) {
+        if (await this.bldArtifactIsUpToDate()) {
+          this.l2(`:build->skip-bc-existing-is-ok`);
+          return;
+        }
         try {
-          const cacheGetRes = await this.cacheGet();
-          if (cacheGetRes.noop) {
-            this.l2(`:build->getCache no-op`);
-            return;
-          } else {
-            this.l2(`:build->getCache hit`);
-            return true;
-          }
+          // why isn't build skipping on success?
+          await this.bldArtifactCacheGet();
+          this.l2(`:build->skip-bc-cache-hit`);
+          return;
         } catch (e) {}
       }
 
@@ -407,7 +417,8 @@ export class Pkg extends PkgWGetSets {
       await this.yarnPack();
       await this.yarnPostpack();
 
-      await this.cacheAdd();
+      await this.bldArtifactAttrsSet();
+      await this.bldArtifactCacheAdd();
 
       this.l3(`:build->end ${Time.diff(start)}`);
     } catch (e: anyOk) {
@@ -415,21 +426,20 @@ export class Pkg extends PkgWGetSets {
     }
   });
 
-  buildDeps = async (options: { noCache?: boolean } = {}) => {
+  buildDeps = cachify(async (options: { noCache?: boolean } = {}) => {
     try {
       this.l4(`->buildDeps`);
       const { noCache } = options;
-      const changed = await P.all(
+      await P.all(
         O.vals(this.clDepsForBuild).map(async (cl) => {
           await cl.build({ noCache });
-          return cl.changed;
         })
       );
-      return changed.includes(true);
+      return;
     } catch (e) {
       throw stepErr(e, "buildDeps", { parent: this.basename });
     }
-  };
+  });
 
   /** Builds the dep tree fields of the pkg */
   buildTree = async () => {
@@ -469,144 +479,103 @@ export class Pkg extends PkgWGetSets {
    * without actually having a build yet.
    */
 
-  /** adds this pkg's build artifact (package.tgz) to the caches (just local atm) */
-  cacheAdd = async () => {
+  /** check if build artifact already in workspace is up to date **/
+  bldArtifactIsUpToDate = async (): Promise<boolean> => {
     try {
-      this.l1(`->cacheAdd`);
-      const srcCsum = await this.cacheChecksum();
-      const bldArtifactPath = `${this.pathAbs}/package.tgz`;
-
-      const depArtifactCsums = O.fromEnts(
-        await P.all(
-          O.vals(this.clDepsForBuild).flatMap((cl) =>
-            cl.cacheChecksum().then((cs) => [cl.json.name, cs])
-          )
-        )
+      this.l4(`->bldArtifactIsUpToDate`);
+      const expected = await this.bldArtifactAttrsCreate();
+      const existing = await this.bldArtifactAttrsGet().catch(() => {});
+      if (!existing) {
+        this.l4(`bldArtifactIsUpToDate->no`);
+        return false;
+      }
+      const delta = new Set<string>();
+      Object.entries(existing).map(
+        ([k, v]) => expected[k] !== v && delta.add(k)
       );
+      Object.entries(expected).map(
+        ([k, v]) => existing[k] !== v && delta.add(k)
+      );
+      if (delta.size) {
+        this.l2(`:bldArtifactIsUpToDate->no`);
+        this.l1(`:bldArtifactIsUpToDate:changes->[${[...delta].join(",")}]`);
+      } else {
+        this.l4(`:bldArtifactIsUpToDate->yes`);
+        return true;
+      }
+    } catch (e) {} // exception means no qualified build artifact
+    return false;
+  };
 
-      // Attrs to be saved on the cache record and bldArtifact
-      const attrs = { [this.json.name]: srcCsum, ...depArtifactCsums };
+  bldArtifactAttrsCreate = cachify(async (): Promise<Dict> => {
+    const [depCsums, selfCsum] = await P.all([
+      this.csumDepsGet(),
+      this.csumSrcCreate(),
+    ]);
+    const attrs = O.sort({ [this.json.name]: selfCsum, ...depCsums });
+    return attrs;
+  });
 
-      // Save the attrs to the file so we can optimize later get
-      await fs.setXattrs(bldArtifactPath, attrs);
+  bldArtifactAttrsGet = async () => {
+    const attrs = await fs.getXattrs(this.bldArtifactPath);
+    return attrs;
+  };
 
-      const cacheKey = `${this.nameEscaped}-${srcCsum}.tgz`;
+  bldArtifactAttrsSet = async () => {
+    const bldAttrsExpected = await this.bldArtifactAttrsCreate();
+    await fs.setXattrs(this.bldArtifactPath, bldAttrsExpected);
+  };
+
+  /**
+   * adds this pkg's build artifact (package.tgz) to the caches (just local atm)
+   *
+   * even though we could get the attrs from the file, we pass them in to avoid
+   * the extra fs call.
+   */
+  bldArtifactCacheAdd = async () => {
+    try {
+      const attrs = await this.bldArtifactAttrsGet();
+      const cacheKey = md5(attrs);
+      this.l1(`:cacheAdd->${cacheKey}`);
 
       // stat before get to check if copy/download be skipped, bc we can skip if
       // the cache already has the package.tgz
       let stat = await localCache
         .stat(cacheKey, { attrs: true })
         .catch(() => {});
-
       if (stat) {
-        this.l1(`:cacheAdd->skip cache bc cache already has it`);
+        this.l1(`:cacheAdd->skip bc cache already has it`);
       } else {
-        const bin = await fs.getBin(bldArtifactPath);
+        const bin = await fs.getBin(this.bldArtifactPath);
         stat = await localCache.add(cacheKey, bin.buffer, { attrs });
       }
 
       this.l4(`:cacheAdd->end`);
       return stat;
-
-      // end cacheAdd main
     } catch (e) {
       throw stepErr(e, "addToCache");
     }
   };
-  /** Makes an md5 checksum of the source files of a javascript package  */
-  cacheChecksum = cachify(async () => {
-    try {
-      this.l5(`->cacheChecksum`);
-      // FIXME: determine excludes from package.json and .npmignore
-      const excludes = [
-        /^\.[a-zA-Z]/, // paths starting with a dot ie (.b)ar
-        /\/\./, // paths with a dot path in the middle ie /foo(/.)bar
-        RegExp(
-          "(" +
-            [
-              "dist",
-              "build",
-              "node_modules",
-              "package.tgz",
-              "public",
-              "tsconfig.json",
-              "yarn.lock",
-            ].join("|") +
-            ")"
-        ),
-      ];
-
-      // Also consider changes to deps
-      const depArtifactCsums = await P.all(
-        O.vals(this.clDepsForBuild).map((cl) => cl.cacheChecksum())
-      );
-
-      const srcCsum = await fs.md5(this.pathAbs, {
-        excludes,
-        salts: depArtifactCsums,
-      });
-
-      this.l5(`->cacheChecksum: ${srcCsum}`);
-      return srcCsum;
-    } catch (e) {
-      throw stepErr(e, "checksum");
-    }
-  });
 
   /**
    * Gets this's build artifact from the cache if exists. return null if not.
    *
    * Returns the result.
    */
-  cacheGet = async (): Promise<{ noop: Boolean }> => {
+  bldArtifactCacheGet = async () => {
     try {
-      this.l5(`->cacheGet`);
-      const srcCsum = await this.cacheChecksum();
-      const key = `${this.nameEscaped}-${srcCsum}.tgz`;
-      const bldArtifactPath = `${this.pathAbs}/package.tgz`;
-
-      // stat bldArtifact to check if the srcCsum matches. If it does, we can skip
-      // the cacheGet bc we already have the package.tgz in our src tree
-      const bldArtifactStat = await fs
-        .stat(bldArtifactPath, { xattrs: true })
-        .catch(() => {});
-
-      if (bldArtifactStat) {
-        if (bldArtifactStat.xattrs?.[this.json.name] === srcCsum) {
-          this.l2(
-            `:cacheGet->skip cache get bc srcCsum matches the package.tgz already in our src tree`
-          );
-          return { noop: true };
-        }
-        // figure out what changed
-        const delta: string[] = [];
-        await P.all(
-          O.vals(this.clDepsForBuild).map(async (cl) => {
-            const clCsum = await cl.cacheChecksum();
-            if (bldArtifactStat.xattrs?.[cl.json.name] !== clCsum) {
-              delta.push(cl.json.name);
-            }
-          })
-        );
-        if (delta.length) {
-          this.l1(`:cacheGet->change detected in: [${delta.join(", ")}]`);
-        }
-      }
-
-      // looks like we haven't the bld artifact in workspace, so get it if it's in the cache
-      const cached = await localCache.get(key).catch(() => {});
-      if (!cached) {
-      }
-      await fs.setBin(bldArtifactPath, cached.buffer, {
+      const bldAttrsExpected = await this.bldArtifactAttrsCreate();
+      const cacheKey = md5(bldAttrsExpected);
+      this.l2(`:cacheGet->${cacheKey}`);
+      const cached = await localCache.get(cacheKey);
+      await fs.setBin(this.bldArtifactPath, cached.buffer, {
         xattrs: cached.attrs,
       });
-      this.l2(`:cacheGet->hit`);
 
-      return { noop: false };
-
+      this.l3(`:cacheGet->hit`);
       // end cacheGet main
     } catch (e) {
-      throw stepErr(e, "getFromCache");
+      throw stepErr(e, "cacheGet");
     }
   };
   static cachePurge = async (pkgNameEscapeds?: string[]) => {
@@ -639,6 +608,52 @@ export class Pkg extends PkgWGetSets {
       ]);
     } catch (e) {
       throw stepErr(e, "pkg.clean");
+    }
+  };
+
+  csumDepsGet = async () => {
+    const depArtifactCsums = O.fromEnts(
+      await P.all(
+        O.vals(this.clDepsForBuild).map(async (cl) => {
+          const xattrs = await fs.getXattrs(`${cl.pathAbs}/package.tgz`);
+          const csum = xattrs[cl.json.name];
+          return [cl.json.name, csum];
+        })
+      )
+    );
+    return depArtifactCsums;
+  };
+
+  /** Makes an md5 checksum of the source files of a javascript package  */
+  csumSrcCreate = async () => {
+    try {
+      this.l5(`->checksumSelf`);
+
+      // FIXME: determine excludes from package.json and .npmignore
+      const excludes = [
+        /^\.[a-zA-Z]/, // paths starting with a dot ie (.b)ar
+        /\/\./, // paths with a dot path in the middle ie /foo(/.)bar
+        RegExp(
+          "(" +
+            [
+              "dist",
+              "build",
+              "node_modules",
+              "package.tgz",
+              "public",
+              "tsconfig.json",
+              "yarn.lock",
+            ].join("|") +
+            ")"
+        ),
+      ];
+
+      const srcCsum = await fs.md5(this.pathAbs, { excludes });
+
+      this.l5(`->checksumSelf: ${srcCsum}`);
+      return srcCsum;
+    } catch (e) {
+      throw stepErr(e, "checksumSelf");
     }
   };
 
@@ -708,7 +723,11 @@ export class Pkg extends PkgWGetSets {
   yarnInstall = async () => {
     this.l1(`->yarnInstall`);
     await sh
-      .exec(`yarn install --mutex file`, { wd: this.pathAbs })
+      .exec(`yarn install --mutex file`, {
+        prefix: this.log.prefix,
+        verbose: MONO_ENV.logLevel > 1,
+        wd: this.pathAbs,
+      })
       .catch(stepErrCb("install"));
     this.l3(`:yarnInstall->end`);
   };
@@ -759,7 +778,13 @@ export class Pkg extends PkgWGetSets {
   };
   yarnBuild = async () => {
     this.l1(`->yarnBuild`);
-    await sh.exec(`yarn build`, { wd: this.pathAbs }).catch(stepErrCb("build"));
+    await sh
+      .exec(`yarn build`, {
+        prefix: this.log.prefix,
+        verbose: MONO_ENV.logLevel > 1,
+        wd: this.pathAbs,
+      })
+      .catch(stepErrCb("build"));
     this.l4(`:yarnPrebuild->end`);
   };
 
@@ -914,6 +939,6 @@ export class Pkg extends PkgWGetSets {
   // end Pkg
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isCalledFromCli) {
   await new Main().run();
 }
