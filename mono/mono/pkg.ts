@@ -1,4 +1,5 @@
 import chokidar from "chokidar";
+import osNode from "node:os";
 import {
   cachify,
   Dict,
@@ -23,6 +24,9 @@ import {
   Tree,
   Is,
   strCompare,
+  Fnc,
+  FncP,
+  throttle,
 } from "./util.js";
 
 const pkgLocalCache = new LocalCache({ path: `${fs.home}/.mono/cache` });
@@ -42,22 +46,9 @@ export class Pkgs {
     const start = Date.now();
     const { noCache } = opts;
     const pkgs = opts.pkgs ?? (await Pkgs.find());
-
-    const queue = [...pkgs];
-    let buildingCount = 0;
-    const concurrency = 4;
-    while (queue.length) {
-      if (buildingCount < concurrency) {
-        const pkg = queue.shift();
-        if (!pkg) break;
-        buildingCount++;
-        pkg.build({ noCache }).then(() => {
-          buildingCount--;
-        });
-      }
-      await sh.sleep(200);
-    }
-
+    A.dedup(pkgs);
+    pkgs.sort((a, b) => -1 * strCompare(a.name, b.name));
+    await P.all(pkgs.map((pkg) => pkg.build({ noCache })));
     Pkgs.l1(`:buildMany->end ${Time.diff(start)}`);
   };
 
@@ -70,6 +61,8 @@ export class Pkgs {
       builds?: boolean;
       /** Whether to clean the build local cache */
       buildCache?: boolean;
+      includeDependencies?: boolean;
+      includeDependents?: boolean;
       /** Exclude some packages from clean, by domain and/or name */
       nodeModulesAll?: boolean;
       /** Whether to rimraf the entire node_modules folders */
@@ -80,9 +73,8 @@ export class Pkgs {
       yarnCache?: boolean;
     }
   ) => {
+    const { excludes, includes, ...flags } = opts;
     try {
-      const { excludes, includes, ...flags } = opts;
-
       if (!O.vals(flags).some(Boolean)) {
         Pkgs.l1(":clean->no opts provided, exiting");
         return;
@@ -103,29 +95,35 @@ export class Pkgs {
 
       await fs.findNearestWsRoot(); // asserts we are in a ws and pumps cache
 
-      const pkgs = await Pkgs.find({ includes, excludes });
+      const pkgs = await Pkgs.find({
+        includes,
+        excludes,
+        dependents: opts.includeDependents,
+      });
       const pkgNames = pkgs.map((p) => p.name) as [string]; // cast bc we do length check below
 
       if (!pkgNames.length)
         throw stepErr(Error("No packages found for filters"), "clean.find");
 
+      if (opts.includeDependencies) {
+        pkgs.map((p) => pkgs.push(...p.dependencyClsForInstall));
+      }
+      if (opts.includeDependents) {
+        pkgs.map((p) => pkgs.push(...p.dependentClsFlat));
+      }
+
+      A.dedup(pkgs);
+      pkgs.sort((a, b) => strCompare(a.name, b.name));
+
       Pkgs.l1(`:clean->start ${pkgs.length} packages`);
 
       const _p: Promise<anyOk>[] = [];
 
-      if (opts.yarnCache) {
-        _p.push(Yarn.cachePurge({ pkgNames }));
-      }
-
-      if (opts.buildCache) {
-        _p.push(Pkg.bldArtifactCachePurge({ includes, excludes }));
-      }
-
       for (const p of pkgs) {
         Pkgs.l2(`:clean:${p.basename}->start`);
-        if (opts.builds) {
-          _p.push(p.cleanBld());
-        }
+        if (opts.builds) _p.push(p.cleanBld());
+        if (opts.buildCache) _p.push(p.bldArtifactCachePurge());
+        if (opts.yarnCache) _p.push(p.yarnCleanCache());
         if (opts.nodeModulesAll) _p.push(p.cleanNodeModules({ hard: true }));
         else if (opts.nodeModuleCrosslinks) _p.push(p.cleanNodeModules());
       }
@@ -206,11 +204,8 @@ export class Pkgs {
 
     try {
       const jsonF = await fs.getPkgJsonFileC(pathAbs);
-
       const pkg = new Pkg(jsonF, pathAbs, pathRel, pathWs);
-
       await pkg.treeBldDependencies();
-
       Pkgs.l3(`:get->done for ${basename}`);
       pkgPwr.resolve(pkg);
       return pkg;
@@ -222,6 +217,28 @@ export class Pkgs {
     // end getPkg
   };
   static getCache = new Map<string, Promise<Pkg>>();
+
+  static exec = async (
+    pkgs: Pkg[],
+    cmd: string,
+    opts: {
+      maxConcurrent?: number;
+    } = {}
+  ) => {
+    const { maxConcurrent } = opts;
+    const exec = throttle(
+      (pkg: Pkg) =>
+        sh.exec(cmd, {
+          prefix: pkg.basename,
+          printOutput: true,
+          wd: pkg.pathAbs,
+        }),
+      {
+        maxConcurrent,
+      }
+    );
+    await P.all(pkgs.map(exec));
+  };
 
   static findPkgPaths = async (options: SMM = {}): Promise<string[]> => {
     let { includes } = options;
@@ -364,7 +381,7 @@ class PkgWTree extends PkgWGetSets {
    * dependencyClsFlat + devDeps (non-recursively)
    * - Are the pkgs needed to be installed in this pkg's node_modules.
    */
-  public dependenciesClsForInstall: Pkg[] = [];
+  public dependencyClsForInstall: Pkg[] = [];
 
   /** pkgs which have this pkg in their pkgJson.dependencies or pkgJson.devDs */
   public dependents: Pkg[] = [];
@@ -416,14 +433,14 @@ class PkgWTree extends PkgWGetSets {
           }
         })
       );
-      this.dependenciesClsForInstall.push(
+      this.dependencyClsForInstall.push(
         ...this.dependencyClsFlat,
         ...childrenDDeps
       );
       A.dedup(this.dependencies);
       A.dedup(this.dependencyCls);
       A.dedup(this.dependencyClsFlat);
-      A.dedup(this.dependenciesClsForInstall);
+      A.dedup(this.dependencyClsForInstall);
     } catch (e: anyOk) {
       throw stepErr(e, "treeBldDependencies", { pkg: this.basename });
     }
@@ -523,7 +540,7 @@ class PkgWithBuild extends PkgWTree {
       this.l4(`->buildDependencies`);
       const { noCache } = opts;
       await P.all(
-        this.dependenciesClsForInstall.map(async (cl) => {
+        this.dependencyClsForInstall.map(async (cl) => {
           await cl.build({ noCache });
         })
       );
@@ -653,10 +670,11 @@ class PkgWithBuild extends PkgWTree {
     return cacheKey;
   };
 
-  static bldArtifactCachePurge = async (opts: SMM = {}) => {
+  bldArtifactCachePurge = async (opts: SMM = {}) => {
     try {
-      const { excludes, includes } = opts;
-      await pkgLocalCache.purge({ excludes, includes });
+      await pkgLocalCache.purge({
+        includes: [strFileEscape(this.name.slice(1))],
+      });
     } catch (e) {
       throw stepErr(e, "cachePurge");
     }
@@ -665,7 +683,7 @@ class PkgWithBuild extends PkgWTree {
   bldArtifactCsumGet = async () => {
     const depArtifactCsums = O.fromEnts(
       await P.all(
-        this.dependenciesClsForInstall.map(async (cl) => {
+        this.dependencyClsForInstall.map(async (cl) => {
           try {
             const xattrs = await fs.getXattrs(`${cl.pathAbs}/package.tgz`);
             const csum = xattrs[cl.json.name];
@@ -759,9 +777,11 @@ class PkgWithBuild extends PkgWTree {
 
   cleanAll = async (opts: { rmAllNodeModules?: boolean } = {}) => {
     const { rmAllNodeModules } = opts;
-    await this.cleanBld();
-    await this.cleanCaches();
-    await this.cleanNodeModules({ hard: rmAllNodeModules });
+    await P.all([
+      this.cleanBld(),
+      this.cleanCaches(),
+      this.cleanNodeModules({ hard: rmAllNodeModules }),
+    ]);
   };
 
   cleanBld = async () => {
@@ -779,12 +799,9 @@ class PkgWithBuild extends PkgWTree {
 
   cleanCaches = async () => {
     try {
-      await P.all([
-        Pkg.bldArtifactCachePurge({ includes: [this.name] }),
-        Yarn.cachePurge({ pkgNames: [this.name] }),
-      ]);
+      await P.all([this.bldArtifactCachePurge(), this.yarnCleanCache()]);
     } catch (e) {
-      throw stepErr(e, "pkg.clean");
+      throw stepErr(e, "pkg.cleanCaches");
     }
   };
 
@@ -795,7 +812,7 @@ class PkgWithBuild extends PkgWTree {
         await fs.rm(`${this.pathAbs}/node_modules`).catch(() => {});
       } else {
         await P.all(
-          this.dependenciesClsForInstall.map((cl) =>
+          this.dependencyClsForInstall.map((cl) =>
             fs.purgeDir(`${this.pathAbs}/node_modules/${cl.json.name}`)
           )
         );
@@ -849,7 +866,7 @@ class PkgWithBuild extends PkgWTree {
 
       // swap out the workspace:* (aka cls) with relative paths and add nested
       const pjs = this.json;
-      this.dependenciesClsForInstall.forEach((cl) => {
+      this.dependencyClsForInstall.forEach((cl) => {
         const name = cl.json.name;
         if (pjs.dependencies?.[name]) {
           pjs.dependencies[name] = `../${cl.basename}/package.tgz`;
@@ -965,9 +982,22 @@ class PkgWithBuild extends PkgWTree {
       throw stepErr(e, "prebuild");
     }
   };
-  yarnBuild = async () => {
+
+  // static yarnBuildsActive = 0;
+  // static yarnBuildsMax = osNode.cpus().length;
+  yarnBuild = throttle(async () => {
+    let start = new Date();
+    // while (Pkg.yarnBuildsActive >= Pkg.yarnBuildsMax) {
+    //   if (Date.now() - start.getTime() > 4000) {
+    //     this.l1(`:yarnBuild->waiting ${Pkg.yarnBuildsActive}`);
+    //     start = new Date();
+    //   }
+    //   await sh.sleep(200);
+    // }
+    // Pkg.yarnBuildsActive++;
+
     this.l1(`->yarnBuild`);
-    const start = new Date();
+    // start = new Date();
     await sh
       .exec(`yarn build`, {
         prefix: this.log.prefix,
@@ -975,11 +1005,13 @@ class PkgWithBuild extends PkgWTree {
         wd: this.pathAbs,
       })
       .catch(stepErrCb("build"));
+    // Pkg.yarnBuildsActive--;
     this.l1(`:yarnBuild->end ${Time.diff(start)}`);
-  };
+  });
 
   yarnPostbuild = async () => {
     try {
+      // TODO: fix no-cache
       this.l4(`->yarnPostBuild`);
       await this.yarnPrepack();
       await this.yarnPack();
@@ -1038,7 +1070,7 @@ class PkgWSync extends PkgWithBuild {
       "yarn.lock",
     ];
 
-    const pkgsToWatch = this.dependenciesClsForInstall;
+    const pkgsToWatch = this.dependencyClsForInstall;
 
     const doSync = async () => {
       log3(`->syncing`);

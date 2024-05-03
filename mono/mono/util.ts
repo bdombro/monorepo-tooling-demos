@@ -41,6 +41,8 @@ export const A = {
     arr.push(...filtered);
     return arr;
   },
+  /** sorts an array in place alphabetically */
+  sortAlpha: <T extends string[]>(arr: T): T => arr.sort(strCompare),
   /** Depups an array */
   toDedup: <T>(arr: T[]): T[] => [...new Set(arr)],
   /** Convert arg to array if not array, return arg as-is if already array */
@@ -73,6 +75,7 @@ export function cachify<T extends Fnc>(fn: T): T {
 
 /** any function */
 export type Fnc = (...args: anyOk) => anyOk;
+export type FncP = (...args: anyOk) => Promise<anyOk>;
 
 /** alias for Record<string, string> */
 export type Dict = Record<string, string>;
@@ -388,6 +391,41 @@ export const strMatchManyFilter = (strs: string[], opts: SMM): string[] => {
 export const strTrim = (s: string, len: number) => {
   if (s.length <= len) return s;
   return s.slice(0, len) + "...";
+};
+
+export const throttle = <Fn extends FncP>(
+  fn: Fn,
+  opts: {
+    logForWaitFrequencyMs?: number;
+    logForWaitUpdates?: LogFn;
+    maxConcurrent?: number;
+  } = {}
+): Fn => {
+  const {
+    logForWaitFrequencyMs = 10000,
+    logForWaitUpdates: log = l2,
+    maxConcurrent = osNode.cpus().length,
+  } = opts;
+  let queueCount = 0;
+  const _p: Promise<anyOk>[] = [];
+  const throttled = async (...args: anyOk) => {
+    queueCount++;
+    const i = setInterval(
+      () =>
+        log(`${queueCount} task(s) waiting for activeCount < maxConcurrent`),
+      logForWaitFrequencyMs
+    );
+    while (_p.length >= maxConcurrent) {
+      await P.race(_p);
+    }
+    queueCount--;
+    clearInterval(i);
+    const p = fn(...args);
+    _p.push(p);
+    p.finally(() => _p.splice(_p.indexOf(p), 1));
+    return p;
+  };
+  return throttled as Fn;
 };
 
 /**
@@ -1330,7 +1368,7 @@ export class Log {
   public showLogLevels: boolean;
   public showTimestamps: boolean;
 
-  constructor(opts: { prefix?: string } = {}) {
+  constructor(opts: { prefix: string }) {
     const { prefix } = opts;
     this.prefix = prefix ?? "";
     this.showLogLevels = false;
@@ -1478,7 +1516,8 @@ export class Log {
     await pAll(Log.appendLogFilePromises);
   };
 }
-export const logDefault = new Log();
+export const logDefault = new Log({ prefix: "" });
+export type LogFn = typeof logDefault.l0;
 export const l0 = logDefault.l0;
 export const l1 = logDefault.l1;
 export const l2 = logDefault.l2;
@@ -1615,16 +1654,6 @@ export class Yarn {
         await sh.exec("yarn cache clean", { wd: wsRoot });
       } else {
         for (const inc of pkgNames) {
-          if (!inc.startsWith("@")) {
-            throw stepErr(
-              Error(
-                `pkgNames must start with @ -- this isn't actually a hard requirement but we throw to help avoid ` +
-                  `accidently passing basenames instead of full names`
-              ),
-              "cleanYarnCache",
-              { inc }
-            );
-          }
           if (inc.includes("*")) {
             throw stepErr(Error(`Glob not supported`), "cleanYarnCache", {
               inc,
@@ -1653,7 +1682,7 @@ export class Yarn {
 
       l4("cleanYarnCache->end");
     } catch (e: anyOk) {
-      throw stepErr(e, "cleanYarnCache", { includes: pkgNames, excludes });
+      throw stepErr(e, "cleanYarnCache", { includes: pkgNames });
     }
   };
 }

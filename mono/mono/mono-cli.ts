@@ -41,6 +41,7 @@ import {
   Is,
   A,
   strCompare,
+  throttle,
 } from "./util.js";
 import { Pkg, Pkgs } from "./pkg.js";
 
@@ -124,6 +125,8 @@ export class Main {
     "--include-dependencies": Boolean,
     /** will apply an action to crosslink dependents */
     "--include-dependents": Boolean,
+    /** concurrancy in actions, like exec */
+    "--concurrancy": Number,
 
     // Flags for clean
     // "--excludes" // already defined above
@@ -131,7 +134,7 @@ export class Main {
     "--builds": Boolean,
     /** Whether to clean the build local cache */
     "--buildCache": Boolean,
-    /** ws + yarnCache */
+    /** ws + yarn */
     "--hard": Boolean,
     /** Whether to rimraf the entire node_modules folders */
     "--nodeModulesAll": Boolean,
@@ -140,7 +143,7 @@ export class Main {
     /** Clean the workspace: bld artifacts and nodeModuleCrosslinks */
     "--ws": Boolean,
     /** clean yarn caches: is slow fyi */
-    "--yarnCache": Boolean,
+    "--yarn": Boolean,
 
     // Aliases
     "-h": "--help",
@@ -281,17 +284,20 @@ export class Main {
 
   clean: any = async () => {
     const { args } = this;
-    const paths = await this.getPkgPaths({ usageOnEmpty: true });
     await Pkgs.clean({
-      excludes: this.excludes,
-      includes: Is.arrS(paths) ? paths : undefined,
       all: args["--all"],
       builds: args["--builds"],
       buildCache: args["--buildCache"],
+      excludes: this.excludes,
+      includeDependencies: args["--include-dependencies"],
+      includeDependents: args["--include-dependents"],
+      includes: args["--all"]
+        ? undefined
+        : await this.getPkgPaths({ usageOnEmpty: true }),
       nodeModulesAll: args["--nodeModulesAll"],
       nodeModuleCrosslinks: args["--nodeModuleCrosslinks"],
       ws: args["--ws"],
-      yarnCache: args["--yarnCache"],
+      yarnCache: args["--yarn"],
     });
   };
 
@@ -305,15 +311,9 @@ export class Main {
       l1(`:ERROR: Specify command after --`);
       this.usage(1);
     }
-    await P.all(
-      pkgs.map((pkg) =>
-        sh.exec(cmd, {
-          prefix: pkg.basename,
-          printOutput: true,
-          wd: pkg.pathAbs,
-        })
-      )
-    );
+    await Pkgs.exec(pkgs, cmd, {
+      maxConcurrent: this.args["--concurrancy"] ?? 1,
+    });
   };
 
   install = async () => {
@@ -333,7 +333,6 @@ export class Main {
       includes: paths,
       excludes: this.excludes,
     });
-    process.exit();
   };
 
   sync = async () => {
@@ -480,7 +479,7 @@ export class Main {
           if (inclDependencies) {
             for (const path of paths) {
               const pkg = pkgsAll.find((p) => p.pathAbs === path);
-              for (const d of pkg?.dependenciesClsForInstall ?? []) {
+              for (const d of pkg?.dependencyClsForInstall ?? []) {
                 paths.push(d.pathAbs);
               }
             }
