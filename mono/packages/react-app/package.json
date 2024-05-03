@@ -19,6 +19,10 @@
     "web-vitals": "^2.1.4"
   },
   "scripts": {
+    "preinstall": "mono yarn-preinstall .",
+    "postinstall": "mono yarn-postinstall .",
+    "prebuild": "mono yarn-prebuild .",
+    "postbuild": "mono yarn-postbuild .",
     "build": "react-scripts build",
     "clean": "rm -rf build",
     "lint": "tsc",

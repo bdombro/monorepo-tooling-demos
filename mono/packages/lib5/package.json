@@ -3,6 +3,10 @@
   "version": "1.0.3",
   "main": "dist/index.js",
   "scripts": {
+    "preinstall": "mono yarn-preinstall .",
+    "postinstall": "mono yarn-postinstall .",
+    "prebuild": "mono yarn-prebuild .",
+    "postbuild": "mono yarn-postbuild .",
     "build": "echo yarn v$(yarn -v) && lib0-cli && lib1-cli && tsc",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",

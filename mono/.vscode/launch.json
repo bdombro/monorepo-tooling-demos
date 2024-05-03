@@ -5,7 +5,7 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "mono-cli",
+      "name": "mono",
       "type": "bun",
       "internalConsoleOptions": "neverOpen",
       "request": "launch",
@@ -14,19 +14,37 @@
       "stopOnEntry": false,
       "watchMode": false,
       "env": {
+        "LOG": "2"
+      },
+      // "args": ["build", "react-app"]
+      // "args": ["tree", "lib3"]
+      // "args": ["build", "lib3"]
+      // "args": ["clean"]
+      "args": ["tree", "lib3"]
+    },
+    {
+      "name": "tree",
+      "type": "bun",
+      "internalConsoleOptions": "neverOpen",
+      "request": "launch",
+      "program": "${workspaceFolder}/mono/tree.ts",
+      "cwd": "${workspaceFolder}",
+      "stopOnEntry": false,
+      "watchMode": false,
+      "env": {
         "LOG": "1"
       },
       // "args": ["build", "react-app"]
-      "args": ["build", "lib3"]
+      // "args": ["build", "lib3"]
       // "args": ["clean"]
     },
     {
-      "name": "bz-cli",
+      "name": "mono:yarn",
       "type": "bun",
       "internalConsoleOptions": "neverOpen",
       "request": "launch",
-      "program": "${workspaceFolder}/util/bz-cli/bz-cli.ts",
-      "cwd": "${workspaceFolder}/packages/react-app",
+      "program": "/usr/local/bin/yarn",
+      "cwd": "${workspaceFolder}/packages/lib0",
       "stopOnEntry": false,
       "watchMode": false,
       "env": {
@@ -35,90 +53,23 @@
       "args": ["install"]
     },
     {
-      "name": "util.ts",
+      "name": "mono:code",
       "type": "bun",
       "internalConsoleOptions": "neverOpen",
       "request": "launch",
-      "program": "${workspaceFolder}/util/bz-cli/util.ts",
-      "cwd": "${workspaceFolder}",
-      "stopOnEntry": false,
-      "watchMode": false,
-      "env": {
-        "LOG": "4"
-      },
-      "args": ["util"]
-    },
-    {
-      "name": "pkg-cli",
-      "type": "bun",
-      "internalConsoleOptions": "neverOpen",
-      "request": "launch",
-      "program": "${workspaceFolder}/mono/pkg-cli.ts",
-      "cwd": "${workspaceFolder}",
-      "stopOnEntry": false,
-      "watchMode": false,
-      "env": {
-        "LOG": "5",
-      },
-      "args": ["install"]
-    },
-    {
-      "name": "pkg-cli:code",
-      "type": "bun",
-      "internalConsoleOptions": "neverOpen",
-      "request": "launch",
-      "program": "${workspaceFolder}/util/bz-cli/pkg-cli.ts",
+      "program": "${workspaceFolder}/mono/mono-cli.ts",
       "cwd": "/Users/brian.dombrowski/Dev/Javascript/monorepo-tooling/code-clean/js/packages/shared-fe",
       "stopOnEntry": false,
       "watchMode": false,
       "env": {
-        "LOG": "5"
+        "LOG": "1"
       },
-      "args": ["build", "."]
+      // "args": ["build", "react-app"]
+      // "args": ["build", "lib3"]
+      // "args": ["clean"]
+      "args": ["tree", "city"]
     },
-    {
-      "name": "pkg-cli:code:node",
-      "type": "node",
-      "internalConsoleOptions": "neverOpen",
-      "request": "launch",
-      "program": "${workspaceFolder}/util/bz-cli/js/pkg-cli.js",
-      "cwd": "/Users/brian.dombrowski/Dev/Javascript/monorepo-tooling/code-clean/js/packages/shared-fe",
-      "stopOnEntry": false,
-      "runtimeExecutable": "/Users/brian.dombrowski/.asdf/shims/node",
-      // "watchMode": false,
-      "env": {
-        "LOG": "5"
-      },
-      "args": ["build", "."]
-    },
-    {
-      "type": "bun",
-      "internalConsoleOptions": "neverOpen",
-      "request": "launch",
-      "name": "bootstrap",
-      "program": "${file}",
-      "cwd": "${workspaceFolder}",
-      "stopOnEntry": false,
-      "watchMode": false,
-      "env": {
-        "LOG": "5"
-      },
-      "args": []
-    },
-    {
-      "type": "bun",
-      "internalConsoleOptions": "neverOpen",
-      "request": "launch",
-      "name": "Run File",
-      "program": "${file}",
-      "cwd": "${workspaceFolder}",
-      "noDebug": true,
-      "watchMode": false,
-      "env": {
-        "LOG": "5"
-      },
-      "args": []
-    },
+    // To attach, just start this before running bun in a Javascript debug terminal
     {
       "type": "bun",
       "internalConsoleOptions": "neverOpen",
@@ -126,6 +77,34 @@
       "name": "Attach Bun",
       "url": "ws://localhost:6499/",
       "stopOnEntry": false
-    }
+    },
+    // {
+    //   "type": "bun",
+    //   "internalConsoleOptions": "neverOpen",
+    //   "request": "launch",
+    //   "name": "bootstrap",
+    //   "program": "${file}",
+    //   "cwd": "${workspaceFolder}",
+    //   "stopOnEntry": false,
+    //   "watchMode": false,
+    //   "env": {
+    //     "LOG": "5"
+    //   },
+    //   "args": []
+    // },
+    // {
+    //   "type": "bun",
+    //   "internalConsoleOptions": "neverOpen",
+    //   "request": "launch",
+    //   "name": "Run File",
+    //   "program": "${file}",
+    //   "cwd": "${workspaceFolder}",
+    //   "noDebug": true,
+    //   "watchMode": false,
+    //   "env": {
+    //     "LOG": "5"
+    //   },
+    //   "args": []
+    // },
   ]
 }
