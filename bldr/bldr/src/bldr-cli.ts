@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * mono-cli - A monorepo cli tool that bootstraps and builds JS applications in a monorepo, with
+ * bldr-cli - A monorepo cli tool that bootstraps and builds JS applications in a monorepo, with
  * careful handling of crosslinks to mimic the install behavior of published npm packages.
  *
  * Motivation:
@@ -43,13 +43,14 @@ import {
   strCompare,
   throttle,
 } from "./util.js";
-import { Pkg, Pkgs } from "./pkg.js";
+import { Pkg, Pkgs } from "./bldr-lib.js";
+import bldrPkgJson from "../package.json";
 
 const __filename = fs.fileURLToPath(import.meta.url);
 // const __dirname = fs.dirname(__filename);
 const isCalledFromCli = import.meta.url === `file://${process.argv[1]}`;
 
-const log = new Log({ prefix: "mono" });
+const log = new Log({ prefix: "bldr" });
 // const l0 = log.l0;
 const l1 = log.l1;
 const l2 = log.l2;
@@ -58,27 +59,19 @@ const l4 = log.l4;
 // const l5 = log.l5;
 // const l9 = log.l9;
 
-export const mono_ENV = {
+export const bldr_ENV = {
   logLevel: Number(process.env["LOG"] ?? 1),
   ci: process.env["CI"] === "1" ? true : false,
-  install: cachify(async () => {
-    await P.all([
-      UTIL_ENV.installDeps(),
-      fs
-        .stat(`/usr/local/bin/mono`)
-        .catch(() =>
-          sh.exec(
-            `chmod +x ${__filename} && ln -sf ${__filename} /usr/local/bin/mono`
-          )
-        ),
-    ]);
-  }),
 };
 
 export class Main {
   usage(exitCode = 0): never {
     console.log(
       `
+  bldr-cli - A monorepo cli tool that bootstraps and builds JS applications in a monorepo
+
+  Version: ${bldrPkgJson.version}
+
   Usage:
     pkg [opts] <action> [...action args]
     ...after install, or use \`bun ${__filename}\` the first time to install
@@ -90,8 +83,8 @@ export class Main {
 
   Actions:
   bootstrap:
-    - re-installs cross-linked packages as if they were
-      file dependencies
+    - installs a package's dependencies, with special handling for cross-linked packages
+      so that they as if they were installed from npm
   build: bootstrap + build + pack
   sync: rsyncs the builds of all cross-linked packages with 
   watch: sync with watch mode
@@ -113,6 +106,7 @@ export class Main {
     "--show-timestamps": Boolean,
     "--loglevel": Number,
     "--verbose": arg.COUNT, // Counts the number of times --verbose is passed
+    "--version": Boolean,
 
     // Shared flags
     /**
@@ -150,20 +144,25 @@ export class Main {
     "-v": "--verbose",
   });
 
-  run = async () => {
-    // this.args._.shift(); // remove the "mono" command
+  public run = async () => {
+    // this.args._.shift(); // remove the "bldr" command
     this.action = this.args._.shift()!;
 
     const { allArgs, args, usage } = this;
 
     if (args["--help"]) usage();
 
+    if (args["--version"]) {
+      console.log(bldrPkgJson.version);
+      process.exit(0);
+    }
+
     if (!this.action) usage();
 
-    mono_ENV.ci = UTIL_ENV.ci =
-      args["--ci"] && ["1", "true"].includes(args["--ci"]) ? true : mono_ENV.ci;
-    mono_ENV.logLevel = UTIL_ENV.logLevel =
-      (mono_ENV.logLevel > 1 && mono_ENV.logLevel) ||
+    bldr_ENV.ci = UTIL_ENV.ci =
+      args["--ci"] && ["1", "true"].includes(args["--ci"]) ? true : bldr_ENV.ci;
+    bldr_ENV.logLevel = UTIL_ENV.logLevel =
+      (bldr_ENV.logLevel > 1 && bldr_ENV.logLevel) ||
       args["--loglevel"] ||
       (args["--verbose"] ?? 0) + 1;
 
@@ -177,10 +176,10 @@ export class Main {
     let printEndTxt = true;
 
     l2(
-      `:cmd ${allArgs.join(" ")} at ${mono_ENV.ci ? "" : start.toISOString()}`
+      `:cmd ${allArgs.join(" ")} at ${bldr_ENV.ci ? "" : start.toISOString()}`
     );
 
-    l4(`: ENV CI=${mono_ENV.ci} logLevel=${mono_ENV.logLevel}`);
+    l4(`: ENV CI=${bldr_ENV.ci} logLevel=${bldr_ENV.logLevel}`);
 
     try {
       switch (this.action) {
@@ -216,24 +215,24 @@ export class Main {
           await this.watch();
           break;
         }
-        case "yarn-preinstall": {
+        case "pkgJson-preinstall": {
           printEndTxt = false;
-          await this.yarnPreinstall();
+          await this.pkgJsonPreinstall();
           break;
         }
-        case "yarn-postinstall": {
+        case "pkgJson-postinstall": {
           printEndTxt = false;
-          await this.yarnPostinstall();
+          await this.pkgJsonPostinstall();
           break;
         }
-        case "yarn-prebuild": {
+        case "pkgJson-prebuild": {
           printEndTxt = false;
-          await this.yarnPrebuild();
+          await this.pkgJsonPrebuild();
           break;
         }
-        case "yarn-postbuild": {
+        case "pkgJson-postbuild": {
           printEndTxt = false;
-          await this.yarnPostbuild();
+          await this.pkgJsonPostbuild();
           break;
         }
         default:
@@ -260,29 +259,31 @@ export class Main {
     return this.args["--excludes"]?.split(",");
   }
 
+  //==============================================================================//
   //
   // Actions
   //
   //
+  //==============================================================================//
 
-  bootstrap = async () => {
+  private bootstrap = async () => {
     const pkgs = await this.getPkgs({ usageOnEmpty: true });
     for (const pkg of pkgs) {
       await pkg.bootstrap({ noCache: this.args["--no-cache"] || false });
     }
   };
 
-  build = async () => {
+  private build = async () => {
     const pkgs = this.args["--all"]
       ? undefined
       : await this.getPkgs({ usageOnEmpty: true });
-    await Pkgs.buildMany({
+    await Pkgs.build({
       noCache: this.args["--no-cache"] || false,
       pkgs,
     });
   };
 
-  clean: any = async () => {
+  private clean: any = async () => {
     const { args } = this;
     await Pkgs.clean({
       all: args["--all"],
@@ -301,7 +302,7 @@ export class Main {
     });
   };
 
-  exec = async () => {
+  private exec = async () => {
     const pkgs = await this.getPkgs({
       excludeAfterDashDash: true,
       usageOnEmpty: true,
@@ -316,11 +317,11 @@ export class Main {
     });
   };
 
-  install = async () => {
-    await mono_ENV.install();
+  private install = async () => {
+    await bldr_ENV.install();
   };
 
-  tree = async () => {
+  private tree = async () => {
     let paths: [string] | undefined = undefined;
     if (!this.args["--all"]) {
       paths = (await Pkgs.findPkgPaths()) as [string];
@@ -335,55 +336,53 @@ export class Main {
     });
   };
 
-  sync = async () => {
+  private sync = async () => {
     const pkg = await this.getPkg();
     await pkg.syncCrosslinks();
   };
 
-  watch = async () => {
+  private watch = async () => {
     const pkg = await this.getPkg();
     await pkg.syncCrosslinks({ watch: true });
     await sh.sleep(Infinity);
   };
 
-  yarnPreinstall = async () => {
+  private pkgJsonPreinstall = async () => {
     const pkg = await this.getPkg();
-    await pkg.yarnPreinstall({ noCache: this.args["--no-cache"] || false });
+    await pkg.pkgJsonPreinstallHook({
+      noCache: this.args["--no-cache"] || false,
+    });
   };
 
-  yarnPostinstall = async () => {
+  private pkgJsonPostinstall = async () => {
     const pkg = await this.getPkg();
-    await pkg.yarnPostinstall();
+    await pkg.pkgJsonPostinstallHook();
   };
 
-  yarnPrebuild = async () => {
+  private pkgJsonPrebuild = async () => {
     const pkg = await this.getPkg();
-    const canSkip = await pkg.buildCheckIfCanSkip(
-      this.args["--no-cache"] || false
-    );
-    if (!canSkip) {
-      await pkg.yarnPrebuild();
+    const res = await pkg.pkgJsonPrebuildHook({
+      noCache: this.args["--no-cache"] || false,
+    });
+    if (res === "skip") {
+      // TODO: test that this skips the build
+      process.exit(0);
     }
   };
 
-  yarnPostbuild = async () => {
-    try {
-      const pkg = await this.getPkg();
-      await pkg.yarnPostbuild();
-      await pkg.bldArtifactAttrsSet();
-      await pkg.bldArtifactCacheAdd();
-    } catch (e) {
-      throw stepErr(e, "yarn-postbuild");
-    }
+  private pkgJsonPostbuild = async () => {
+    const pkg = await this.getPkg();
+    await pkg.pkgJsonPostbuildHook();
   };
 
-  //
+  //==============================================================================//
   //
   // Utils
   //
   //
+  //==============================================================================//
 
-  getPkg = async (): Promise<Pkg> => {
+  private getPkg = async (): Promise<Pkg> => {
     const path = (await this.getPkgPaths())?.[0];
     if (!path) {
       logDefault.l1(`ERROR: No package specified`);
@@ -393,7 +392,7 @@ export class Main {
     return pkg;
   };
 
-  getPkgs = async <T extends boolean>(
+  private getPkgs = async <T extends boolean>(
     opts: { excludeAfterDashDash?: boolean; usageOnEmpty?: T } = {}
   ): Promise<T extends true ? [Pkg, ...Pkg[]] : Pkg[]> => {
     const { excludeAfterDashDash, usageOnEmpty } = opts;
@@ -406,10 +405,10 @@ export class Main {
     return pkgs as anyOk;
   };
 
-  getPkgPaths = cachify(
-    async <T extends boolean>(
-      opts: { excludeAfterDashDash?: boolean; usageOnEmpty?: T } = {}
-    ): Promise<T extends true ? [string, ...string[]] : string[]> => {
+  private getPkgPaths = cachify(
+    async (
+      opts: { excludeAfterDashDash?: boolean; usageOnEmpty?: boolean } = {}
+    ): Promise<[string, ...string[]]> => {
       try {
         const { excludeAfterDashDash, usageOnEmpty } = opts;
         const inclDependencies = this.args["--include-dependencies"];

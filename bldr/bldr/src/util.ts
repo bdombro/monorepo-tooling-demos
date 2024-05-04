@@ -11,16 +11,6 @@ import utilNode from "node:util";
 export const UTIL_ENV = {
   ci: process.env["CI"] === "1" ? true : false,
   logLevel: Number(process.env["LOG"] ?? 1),
-  installDeps: cachify(async () => {
-    l4("installEnvDeps->start");
-    await P.all([
-      sh.assertCmdExists("yarn"),
-      sh.assertCmdExists("git"),
-      fs
-        .stat(`${fs.home}/.bun`)
-        .catch(() => sh.exec(`curl -fsSL https://bun.sh/install | bash`)),
-    ]);
-  }),
 };
 
 /** Aliases and misc */
@@ -60,11 +50,36 @@ export type anyOk =
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   any;
 
-/** Makes a function cached (forever atm) */
-export function cachify<T extends Fnc>(fn: T): T {
+type Cachified<T extends Fnc> = (
+  ...args: [
+    ...Parameters<T>,
+    opts?: { bustCache?: boolean; setCache?: ReturnType<T> | PReturnType<T> }
+  ]
+) => ReturnType<T>;
+/**
+ * Wraps an async function with a simple cache
+ * - an optional obj parameter is added to the end of the function signature,
+ *   which can be used to bust or set the cache
+ *
+ * ex. f = cachify(async (a: number) => a + 1))
+ * f(1) // 2
+ * f(1) // 2, but from cache
+ * f(1, { bustCache: true }) // 2, but recalculated
+ * f(1, { setCache: 3 }) // sets the cache to 3 and returns it
+ */
+export function cachify<T extends Fnc>(fn: T): Cachified<T> {
   const cache: Map<anyOk, anyOk> = new Map();
   const cached = (...args: anyOk[]) => {
+    const maybeOpts = args.at(-1);
+    if (maybeOpts?.bustCache) {
+      cache.clear();
+      args.pop();
+    }
     const key = JSON.stringify(args?.length ? args : "none");
+    if (maybeOpts?.setCache) {
+      cache.set(key, Promise.resolve(maybeOpts.setCache));
+      return maybeOpts.setCache;
+    }
     if (cache.has(key)) return cache.get(key);
     const res = fn(...args);
     cache.set(key, res);
@@ -154,16 +169,30 @@ export const O = {
   /** An alias for Object.assign */
   ass: <T extends anyOk[]>(...args: T): Combine<T> =>
     Object.assign(...(args as unknown as [anyOk])),
+  /** A super basic compare check */
+  compare: (o1: anyOk, o2: anyOk) => {
+    const added = new Set<string>();
+    const removed = new Set<string>();
+    Object.entries(o1).map(([k, v]) => o2[k] !== v && added.add(k));
+    Object.entries(o2).map(([k, v]) => o1[k] !== v && removed.add(k));
+    return {
+      added,
+      delta: [...added, ...removed],
+      removed,
+    };
+  },
   /** An alias for Object.entries */
   ents: ((...args: [anyOk]) =>
     Object.entries(...args)) as ObjectConstructor["entries"],
+  /** A super basic equality check */
+  equals: (o1: anyOk, o2: anyOk) => !O.compare(o1, o2).delta.length,
   /** An alias for Object.fromEntries */
   fromEnts: ((...args: [anyOk]) =>
     Object.fromEntries(...args)) as ObjectConstructor["fromEntries"],
   /** An alias for Object.keys */
   keys: (obj: HashM<anyOk>): string[] => Object.keys(obj),
   /** returns a copy of an obj sorted by key */
-  sort: <T extends HashM<anyOk>>(obj: T): T =>
+  toSorted: <T extends HashM<anyOk>>(obj: T): T =>
     O.keys(obj)
       .toSorted()
       .reduce((result: anyOk, key: string) => {
@@ -203,7 +232,7 @@ export const P = O.ass(Promise, {
   wr: Promise.withResolvers,
 });
 
-export interface PkgJson {
+export interface PkgJsonFields {
   dependencies?: Dict;
   description?: string;
   devDependencies?: Dict;
@@ -645,114 +674,114 @@ export class fs {
 
   /** get file list from cache or fs */
   // FIXME: replace usages of sh.find with this
-  static find = async (
-    /** an abs path to search within */
-    pathToFindIn: string,
-    opts: SMM & {
-      /** if recursing, how deep to go. default=Inf */
-      maxDepth?: number;
-      /** recurse into directories. default=false */
-      recursive?: boolean;
-      /** Should the paths returned be relative to pathToLs. default=false; */
-      relative?: boolean;
-      /** Search files or dirs. default=both */
-      typeFilter?: "file" | "dir";
-      /** internal use: how deep we are if recursing */
-      currentDepth?: number;
-    } = {}
-  ): Promise<string[]> => {
-    try {
-      l5(`fs.find:start->${pathToFindIn}`);
+  static find = cachify(
+    async (
+      /** an abs path to search within */
+      pathToFindIn: string,
+      opts: SMM & {
+        /** if recursing, how deep to go. default=Inf */
+        maxDepth?: number;
+        /** recurse into directories. default=false */
+        recursive?: boolean;
+        /** Should the paths returned be relative to pathToLs. default=false; */
+        relative?: boolean;
+        /** Search files or dirs. default=both */
+        typeFilter?: "file" | "dir";
+        /** internal use: how deep we are if recursing */
+        currentDepth?: number;
+      } = {}
+    ): Promise<string[]> => {
+      try {
+        l5(`fs.find:start->${pathToFindIn}`);
 
-      if (pathToFindIn[0] !== "/")
-        pathToFindIn = pathNode.resolve(process.cwd(), pathToFindIn);
+        if (pathToFindIn[0] !== "/")
+          pathToFindIn = pathNode.resolve(process.cwd(), pathToFindIn);
 
-      const {
-        currentDepth = 0,
-        excludes = [],
-        includes,
-        maxDepth = Infinity,
-        recursive = false,
-        relative = false,
-        typeFilter,
-      } = opts;
+        const {
+          currentDepth = 0,
+          excludes = [],
+          includes,
+          maxDepth = Infinity,
+          recursive = false,
+          relative = false,
+          typeFilter,
+        } = opts;
 
-      excludes.push(...[/\.DS_Store/]);
+        excludes.push(...[/\.DS_Store/]);
 
-      if (includes?.length) {
-        for (const inc of includes) {
-          if (Is.str(inc) && inc.startsWith("/"))
-            throw Error(`includes must be relative`);
+        if (includes?.length) {
+          for (const inc of includes) {
+            if (Is.str(inc) && inc.startsWith("/"))
+              throw Error(`includes must be relative`);
+          }
         }
-      }
 
-      let paths: string[] = [];
-      await fsNode
-        .readdir(pathToFindIn, { withFileTypes: true })
-        .then(async (rdResults) =>
-          P.all(
-            rdResults.map(async (rdResult) => {
-              const shouldInclude = strMatchMany(rdResult.name, {
-                excludes,
-                includes,
-              });
-              if (!shouldInclude) return;
-
-              const rdResAbsPath = `${pathToFindIn}/${rdResult.name}`;
-              const isDir = rdResult.isDirectory();
-              const isFile = rdResult.isFile();
-
-              if (isDir && recursive && currentDepth < maxDepth) {
-                const lsPaths = await fs.find(rdResAbsPath, {
-                  currentDepth: currentDepth + 1,
+        let paths: string[] = [];
+        await fsNode
+          .readdir(pathToFindIn, { withFileTypes: true })
+          .then(async (rdResults) =>
+            P.all(
+              rdResults.map(async (rdResult) => {
+                const shouldInclude = strMatchMany(rdResult.name, {
                   excludes,
-                  maxDepth,
-                  recursive,
-                  typeFilter,
+                  includes,
                 });
-                paths.push(...lsPaths);
-              }
-              if (typeFilter) {
-                if (typeFilter === "dir" && !isDir) return false;
-                if (typeFilter === "file" && !isFile) return false;
-              }
-              paths.push(rdResAbsPath);
-            })
-          )
-        )
-        .catch(() => {
-          throw stepErr(Error("Path not found"), `readdir`);
-        });
+                if (!shouldInclude) return;
 
-      if (relative && currentDepth === 0) {
-        paths = paths.map((p) => fs.pathRel(pathToFindIn, p));
+                const rdResAbsPath = `${pathToFindIn}/${rdResult.name}`;
+                const isDir = rdResult.isDirectory();
+                const isFile = rdResult.isFile();
+
+                if (isDir && recursive && currentDepth < maxDepth) {
+                  const lsPaths = await fs.find(rdResAbsPath, {
+                    currentDepth: currentDepth + 1,
+                    excludes,
+                    maxDepth,
+                    recursive,
+                    typeFilter,
+                  });
+                  paths.push(...lsPaths);
+                }
+                if (typeFilter) {
+                  if (typeFilter === "dir" && !isDir) return false;
+                  if (typeFilter === "file" && !isFile) return false;
+                }
+                paths.push(rdResAbsPath);
+              })
+            )
+          )
+          .catch(() => {
+            throw stepErr(Error("Path not found"), `readdir`);
+          });
+
+        if (relative && currentDepth === 0) {
+          paths = paths.map((p) => fs.pathRel(pathToFindIn, p));
+        }
+        if (currentDepth === 0) paths.sort();
+        return paths;
+      } catch (e) {
+        throw stepErr(e, `fs.find`, { pathToLs: pathToFindIn });
       }
-      if (currentDepth === 0) paths.sort();
-      return paths;
-    } catch (e) {
-      throw stepErr(e, `fs.find`, { pathToLs: pathToFindIn });
     }
-  };
-  /** A cached version of find */
-  static findC = cachify(fs.find);
+  );
 
   /**
    * traverse the directory tree from __dirname to find the nearest package.json
-   * with name=root or .monorc.ts. If none found, throw an error.
+   * with name=root or .bldrrc.mjs. If none found, throw an error.
    */
   static findNearestWsRoot = cachify(async (startFrom = process.cwd()) => {
     l4("FS:findNearestWsRoot->start");
     let root = startFrom;
     while (true) {
-      const ws = await fs.getPkgJsonFileC(root).catch(() => {});
+      const ws = await fs.getPkgJsonFile(root).catch(() => {});
       if (ws?.json.name === "root") break;
-      const configF = await import(`${root}/.monorc.ts`).catch(() => {});
+      const configF = await import(`${root}/.bldrrc.mjs`).catch(() => {});
       if (configF?.config) break;
       const next = fs.resolve(root, "..");
       if (next === root) {
         throw stepErr(
           Error(
-            "No package.json:name=root or .monorc.ts found in the directory tree"
+            "No package.json:name=root or .bldrrc.mjs found in the directory tree"
           ),
           "findNearestWsRoot"
         );
@@ -764,43 +793,44 @@ export class fs {
   });
 
   /** get's a file object */
-  static get = async (
-    path: string,
-    opts: {
-      xattrs?: boolean;
-    } = {}
-  ) => {
-    try {
-      const { xattrs } = opts;
-      const text = await fsNode.readFile(path, "utf-8").catch(() => {
-        throw stepErr(Error(`fg:file not found`), `readfile`);
-      });
-      const file = {
-        /** resets the file to the original state when first read */
-        reset: async () => {
-          l5(`FS:get->reset ${path}`);
-          await fs.set(path, text).catch((e) => {
-            throw stepErr(e, `FS:get.reset`, { rstPath: path });
-          });
-          l5(`FS:get->reset-success ${path}`);
-        },
-        save: async () => {
-          return fs.set(path, file.text);
-        },
-        set: (newText: string) => {
-          return fs.set(path, newText);
-        },
-        xattrs: xattrs ? await fs.getXattrs(path) : {},
-        text,
-      };
-      return file;
-    } catch (e: anyOk) {
-      throw stepErr(e, `fs.get`, { getPath: path });
+  static get = cachify(
+    async (
+      path: string,
+      opts: {
+        xattrs?: boolean;
+      } = {}
+    ) => {
+      try {
+        const { xattrs } = opts;
+        const text = await fsNode.readFile(path, "utf-8").catch(() => {
+          throw stepErr(Error(`fg:file not found`), `readfile`);
+        });
+        const file = {
+          /** resets the file to the original state when first read */
+          reset: async () => {
+            l5(`FS:get->reset ${path}`);
+            await fs.set(path, text).catch((e) => {
+              throw stepErr(e, `FS:get.reset`, { rstPath: path });
+            });
+            l5(`FS:get->reset-success ${path}`);
+          },
+          save: async () => {
+            return fs.set(path, file.text);
+          },
+          set: (newText: string) => {
+            return fs.set(path, newText);
+          },
+          xattrs: xattrs ? await fs.getXattrs(path) : {},
+          text,
+        };
+        return file;
+      } catch (e: anyOk) {
+        throw stepErr(e, `fs.get`, { getPath: path });
+      }
     }
-  };
-  /** get's a file object from cache or fs */
-  static getC = cachify(fs.get);
+  );
 
+  /** Gets the contents of a file as a buffer */
   static getBin = async (
     path: string,
     opts: {
@@ -854,30 +884,36 @@ export class fs {
     };
     return jsonF;
   };
-  /** get json file from cache or fs */
-  static getJsonFileC = cachify(fs.getJsonFile);
 
   /** get package.json file */
   static getPkgJsonFile = async (pathToPkgOrPkgJson: string) => {
     let path = pathToPkgOrPkgJson;
     if (!path.endsWith("package.json")) path = `${path}/package.json`;
-    const jsonF = await fs.getJsonFile<PkgJson>(path);
+    const jsonF = await fs.getJsonFile<PkgJsonFields>(path);
     return {
       ...jsonF,
       disableHooks: async () => {
         if (jsonF.json.scripts) {
-          jsonF.json.scripts = O.fromEnts(
-            O.ents(jsonF.json.scripts).filter(
-              ([k]) => !k.startsWith("pre") && !k.startsWith("post")
-            )
-          );
+          for (const k in jsonF.json.scripts) {
+            if (k.startsWith("pre")) {
+              jsonF.json.scripts[`//${k}`] = jsonF.json.scripts[k];
+            }
+          }
+          await jsonF.save();
+        }
+      },
+      enableHooks: async () => {
+        if (jsonF.json.scripts) {
+          for (const k in jsonF.json.scripts) {
+            if (k.startsWith("//pre")) {
+              jsonF.json.scripts[k.slice(2)] = jsonF.json.scripts[k];
+            }
+          }
           await jsonF.save();
         }
       },
     };
   };
-  /** get package.json file from cache or fs */
-  static getPkgJsonFileC = cachify(fs.getPkgJsonFile);
 
   /** Gets xattrs (extended attributes) from a file, sorted by key */
   static getXattrs = async (path: string): Promise<Dict> => {
@@ -893,7 +929,7 @@ export class fs {
             return acc;
           }, {});
         });
-      return O.sort(xattrs);
+      return O.toSorted(xattrs);
     } catch (e) {
       throw stepErr(e, `fs.getXattrs`, { getXattrsPath: path });
     }
@@ -1168,7 +1204,7 @@ export class fs {
   };
 
   static tmpDir =
-    `${fs.home}/.mono/runs/` +
+    `${fs.home}/.bldr/runs/` +
     new Date()
       .toISOString()
       .slice(0, 19)
@@ -1492,8 +1528,8 @@ export class Log {
   };
 
   lErrCtx = (e: anyOk) => {
-    l1(`Error: ${e.message}`);
     this.l1(e);
+    l1(`ERROR: ${e.message}`);
     this.l1(
       `ERROR:CTX->${str(
         {

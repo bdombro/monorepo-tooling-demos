@@ -1,4 +1,4 @@
-# bz-cli
+# bldr
 
 To install dependencies:
 

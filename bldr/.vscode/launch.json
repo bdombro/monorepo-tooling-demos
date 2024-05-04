@@ -5,29 +5,11 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "mono",
+      "name": "bldr",
       "type": "bun",
       "internalConsoleOptions": "neverOpen",
       "request": "launch",
-      "program": "${workspaceFolder}/mono/mono-cli.ts",
-      "cwd": "${workspaceFolder}",
-      "stopOnEntry": false,
-      "watchMode": false,
-      "env": {
-        "LOG": "2"
-      },
-      // "args": ["build", "react-app"]
-      // "args": ["tree", "lib3"]
-      // "args": ["build", "lib3"]
-      // "args": ["clean"]
-      "args": ["tree", "lib3"]
-    },
-    {
-      "name": "tree",
-      "type": "bun",
-      "internalConsoleOptions": "neverOpen",
-      "request": "launch",
-      "program": "${workspaceFolder}/mono/tree.ts",
+      "program": "${workspaceFolder}/bldr/src/bldr-cli.ts",
       "cwd": "${workspaceFolder}",
       "stopOnEntry": false,
       "watchMode": false,
@@ -35,11 +17,13 @@
         "LOG": "1"
       },
       // "args": ["build", "react-app"]
-      // "args": ["build", "lib3"]
+      // "args": ["tree", "lib3"]
+      "args": ["build", "lib3"]
       // "args": ["clean"]
+      // "args": ["tree", "lib3"]
     },
     {
-      "name": "mono:yarn",
+      "name": "bldr:yarn",
       "type": "bun",
       "internalConsoleOptions": "neverOpen",
       "request": "launch",
@@ -53,21 +37,20 @@
       "args": ["install"]
     },
     {
-      "name": "mono:code",
+      "name": "bldr:code",
       "type": "bun",
       "internalConsoleOptions": "neverOpen",
       "request": "launch",
-      "program": "${workspaceFolder}/mono/mono-cli.ts",
-      "cwd": "/Users/brian.dombrowski/Dev/Javascript/monorepo-tooling/code-clean/js/packages/shared-fe",
+      "program": "${workspaceFolder}/bldr/src/bldr-cli.ts",
+      "cwd": "/Users/brian.dombrowski/Dev/Javascript/bldrrepo-tooling/code-clean/js/packages/shared-fe",
       "stopOnEntry": false,
       "watchMode": false,
       "env": {
         "LOG": "1"
       },
-      // "args": ["build", "react-app"]
-      // "args": ["build", "lib3"]
       // "args": ["clean"]
-      "args": ["tree", "city"]
+      // "args": ["tree", "city"]
+      "args": ["build", "city"]
     },
     // To attach, just start this before running bun in a Javascript debug terminal
     {
