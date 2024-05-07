@@ -23,6 +23,9 @@
     "noPropertyAccessFromIndexSignature": true,
 
     // Favs
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
     "allowUnreachableCode": true,
-  }
+  },
+  "include": ["src"],
 }

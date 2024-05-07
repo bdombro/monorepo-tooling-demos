@@ -37,20 +37,18 @@ import {
   stepErr,
   Time,
   UTIL_ENV,
-  anyOk,
-  Is,
   A,
   strCompare,
   throttle,
 } from "./util.js";
-import { Pkg, Pkgs } from "./bldr-lib.js";
+import { Pkg, Bldr } from "./bldr-lib.js";
 import bldrPkgJson from "../package.json";
 
 const __filename = fs.fileURLToPath(import.meta.url);
 // const __dirname = fs.dirname(__filename);
 const isCalledFromCli = import.meta.url === `file://${process.argv[1]}`;
 
-const log = new Log({ prefix: "bldr" });
+const log = new Log({ prefix: "BLDR" });
 // const l0 = log.l0;
 const l1 = log.l1;
 const l2 = log.l2;
@@ -199,10 +197,6 @@ export class Main {
           await this.exec();
           break;
         }
-        case "install": {
-          await this.install();
-          break;
-        }
         case "tree": {
           await this.tree();
           break;
@@ -277,7 +271,7 @@ export class Main {
     const pkgs = this.args["--all"]
       ? undefined
       : await this.getPkgs({ usageOnEmpty: true });
-    await Pkgs.build({
+    await Bldr.build({
       noCache: this.args["--no-cache"] || false,
       pkgs,
     });
@@ -285,8 +279,8 @@ export class Main {
 
   private clean: any = async () => {
     const { args } = this;
-    await Pkgs.clean({
-      all: args["--all"],
+    await Bldr.clean({
+      all: args["--hard"],
       builds: args["--builds"],
       buildCache: args["--buildCache"],
       excludes: this.excludes,
@@ -312,25 +306,16 @@ export class Main {
       l1(`:ERROR: Specify command after --`);
       this.usage(1);
     }
-    await Pkgs.exec(pkgs, cmd, {
+    await Bldr.exec(pkgs, cmd, {
       maxConcurrent: this.args["--concurrancy"] ?? 1,
     });
   };
 
-  private install = async () => {
-    await bldr_ENV.install();
-  };
-
   private tree = async () => {
-    let paths: [string] | undefined = undefined;
-    if (!this.args["--all"]) {
-      paths = (await Pkgs.findPkgPaths()) as [string];
-      if (!paths.length) {
-        l1(`:ERROR: Specify packages or --all`);
-        this.usage();
-      }
-    }
-    await Pkgs.treeViz({
+    const paths = this.args["--all"]
+      ? undefined
+      : await this.getPkgPaths({ usageOnEmpty: true });
+    await Bldr.treeViz({
       includes: paths,
       excludes: this.excludes,
     });
@@ -361,13 +346,9 @@ export class Main {
 
   private pkgJsonPrebuild = async () => {
     const pkg = await this.getPkg();
-    const res = await pkg.pkgJsonPrebuildHook({
+    await pkg.pkgJsonPrebuildHook({
       noCache: this.args["--no-cache"] || false,
     });
-    if (res === "skip") {
-      // TODO: test that this skips the build
-      process.exit(0);
-    }
   };
 
   private pkgJsonPostbuild = async () => {
@@ -388,7 +369,7 @@ export class Main {
       logDefault.l1(`ERROR: No package specified`);
       this.usage();
     }
-    const pkg = await Pkgs.get(path);
+    const pkg = await Bldr.get(path);
     return pkg;
   };
 
@@ -401,7 +382,7 @@ export class Main {
       usageOnEmpty,
     });
     if (!paths?.length) return [] as anyOk;
-    const pkgs = await Pkgs.find({ includes: paths as [string] });
+    const pkgs = await Bldr.find({ includes: paths as [string] });
     return pkgs as anyOk;
   };
 
@@ -414,7 +395,7 @@ export class Main {
         const inclDependencies = this.args["--include-dependencies"];
         const inclDependents = this.args["--include-dependents"];
 
-        const pkgPathsAll = await Pkgs.findPkgPaths();
+        const pkgPathsAll = await Bldr.findPkgPaths();
         if (this.args["--all"]) return pkgPathsAll as anyOk;
 
         let argArr = this.args._;
@@ -473,7 +454,7 @@ export class Main {
         A.filter(paths, Boolean);
 
         if (inclDependents || inclDependencies) {
-          const pkgsAll = await Pkgs.find({ dependents: true });
+          const pkgsAll = await Bldr.find({ dependents: true });
 
           if (inclDependencies) {
             for (const path of paths) {

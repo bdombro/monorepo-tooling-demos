@@ -1,18 +1,18 @@
 // @ts-check
 
-export default bldrConfig({
-  postBuildSourceCheckIgnores: ["__generated__"],
+export default bldrPkgConfig({
+  postBuildSourceCheckIgnores: [],
 });
 
 //
-// bldr config function below
+// bldr pkg config function below
 //
 // FIXME: types should be imported from the package
 //
 //
 
 /** Used mainly to make typing better and easier by using `typeof configEmpty` */
-const configEmpty = Object.freeze({
+const configPkgEmpty = Object.freeze({
   /**
    * List of files that should be ignored in the post-build source change check.
    *
@@ -20,9 +20,9 @@ const configEmpty = Object.freeze({
    * was mistakenly included in the build artifact, which can cause excessive cache
    * misses.
    *
-   * Can be basenames, regex, or relative paths from the pkg roots.
+   * Can be basenames, regex, or relative paths from the pkg root.
    *
-   * Hint: can use .pkg.bldrrc.mjs for project-specific ignores.
+   * Hint: can use .bldrrc.mjs for workspace wide
    * Hint: we already ignore __generated__ files by default.
    *
    * @type {string[]}
@@ -32,8 +32,8 @@ const configEmpty = Object.freeze({
 
 /**
  *
- * @param {Partial<typeof configEmpty>} opts
+ * @param {Partial<typeof configPkgEmpty>} opts
  */
-export function bldrConfig(opts) {
+export function bldrPkgConfig(opts) {
   return opts;
 }

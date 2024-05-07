@@ -42,13 +42,15 @@
       "internalConsoleOptions": "neverOpen",
       "request": "launch",
       "program": "${workspaceFolder}/bldr/src/bldr-cli.ts",
-      "cwd": "/Users/brian.dombrowski/Dev/Javascript/bldrrepo-tooling/code-clean/js/packages/shared-fe",
+      "cwd": "/Users/brian.dombrowski/Dev/Javascript/monorepo-tooling/code-clean/js/packages/shared-fe",
       "stopOnEntry": false,
       "watchMode": false,
       "env": {
-        "LOG": "1"
+        "LOG": "1",
+        "NPM_TOKEN": "${env:NPM_TOKEN}",
       },
-      // "args": ["clean"]
+      // "envFile": "${workspaceFolder}/.envrc",
+      // "args": ["clean", "city", "--include-dependencies", "--ws", "--buildCache"],
       // "args": ["tree", "city"]
       "args": ["build", "city"]
     },

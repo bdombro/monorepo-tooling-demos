@@ -5,8 +5,11 @@ install:
 	@bun build src/bldr-cli.ts --outfile dist/bldr --compile
 	@xattr -w version "${jq -r '.version' package.json}" dist/bldr
 	@chmod +x dist/bldr
-	@rm -rf /usr/local/bin/bldr
-	@mv dist/bldr /usr/local/bin/bldr
+	@cp dist/bldr /usr/local/bin/bldr
+
+uninstall:
+	@echo "Uninstalling bldr"
+	@rm -f /usr/local/bin/bldr
 
 dev:
 	@if ! command -v fswatch &> /dev/null; then brew install fswatch; fi

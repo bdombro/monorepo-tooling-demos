@@ -17,6 +17,17 @@ export const UTIL_ENV = {
 
 /** Array aliases */
 export const A = {
+  /** a very basic compare */
+  compare: <A, B>(
+    /** from array */
+    a: A[],
+    /** to array */
+    b: B[]
+  ) => {
+    const added = b.filter((v: anyOk) => !a.includes(v));
+    const removed = a.filter((v: anyOk) => !b.includes(v));
+    return { added, removed };
+  },
   /** Depups an array in place */
   dedup: <T>(arr: T[]) => {
     const deduped = A.toDedup(arr);
@@ -31,29 +42,60 @@ export const A = {
     arr.push(...filtered);
     return arr;
   },
-  /** sorts an array in place alphabetically */
-  sortAlpha: <T extends string[]>(arr: T): T => arr.sort(strCompare),
+  /** Note: USE just .sort() instead -- sorts an array in place alphabetically */
+  // sortAlpha: <T extends string[]>(arr: T): T => arr.sort(strCompare),
   /** Depups an array */
   toDedup: <T>(arr: T[]): T[] => [...new Set(arr)],
-  /** Convert arg to array if not array, return arg as-is if already array */
-  to: <T>(arg: T | T[]): T extends undefined ? never[] : T[] => {
-    if (arg === undefined) return [] as anyOk;
-    else return (Is.arr(arg) ? arg : [arg]) as anyOk;
+  /** A better Array.from that will turn anything into an array */
+  // from: <T>(arg: T): T extends ArrayLike<anyOk> ? T : T[] => {
+  from: <
+    // the default if we just convert to array by wrapping in brackets ie [ANY]
+    ANY,
+    // Map key/val types
+    M1,
+    M2,
+    // Record key/val types
+    R1 extends string | number | symbol,
+    R2,
+    // Set val type
+    S
+  >(
+    arg: Map<M1, M2> | Record<R1, R2> | ANY
+  ): ANY extends anyOk[]
+    ? ANY
+    : ANY extends
+        | bigint
+        | boolean
+        | Buffer
+        | Date
+        | Fnc
+        | number
+        | RegExp
+        | string
+        | symbol
+        | undefined
+    ? ANY[]
+    : ANY extends Map<M1, M2>
+    ? [M1, M2][]
+    : ANY extends Set<S>
+    ? S[]
+    : ANY extends Record<R1, R2>
+    ? [R1, R2][]
+    : ANY[] => {
+    if (Is.arr(arg)) return arg as anyOk;
+    if (Is.map(arg)) return Array.from(arg as Map<anyOk, anyOk>) as anyOk;
+    if (Is.set(arg)) return Array.from(arg as Set<anyOk>) as anyOk;
+    // if (Is.scalar(arg)) return [arg] as anyOk;
+    return [arg] as anyOk;
   },
-  from: Array.from,
   equals: <T>(a: T[], b: T[]) =>
     a.length === b.length && a.every((v, i) => v === b[i]),
 };
 
-/** Alias for any that passes eslint. Use this sparingly! */
-export type anyOk =
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  any;
-
 type Cachified<T extends Fnc> = (
   ...args: [
     ...Parameters<T>,
-    opts?: { bustCache?: boolean; setCache?: ReturnType<T> | PReturnType<T> }
+    opts?: { bustCache?: boolean; setCache?: ReturnType<T> | ReturnTypeP<T> }
   ]
 ) => ReturnType<T>;
 /**
@@ -88,27 +130,10 @@ export function cachify<T extends Fnc>(fn: T): Cachified<T> {
   return cached as T;
 }
 
-/** any function */
-export type Fnc = (...args: anyOk) => anyOk;
-export type FncP = (...args: anyOk) => Promise<anyOk>;
-
-/** alias for Record<string, string> */
-export type Dict = Record<string, string>;
-
-/** alias for Record<string, any> */
-export type HashM<T> = Record<string, T>;
-
 /** methods to check if a var is a type */
 export const Is = {
   /** alias for Array.isArray */
   arr: Array.isArray,
-  /** checks if an array is empty */
-  arrE: (a: anyOk): a is [] => Is.arr(a) && a.length === 0,
-  /** checks if an array is fullsy (non-empty) */
-  arrF: (a: anyOk): a is [anyOk, ...anyOk] => Is.arr(a) && a.length > 0,
-  /** checks if a string array is fullsy (non-empty) */
-  arrS: (a: string[] | undefined): a is [string, ...string[]] =>
-    Is.arrF(a) && a.every(Is.str),
   /** checks if a var is a bigint */
   bigint: (a: unknown): a is bigint => typeof a === "bigint",
   /** checks if a var is a boolean */
@@ -117,12 +142,49 @@ export const Is = {
   buffer: Buffer.isBuffer,
   /** checks if a var is a date */
   date: (a: unknown): a is Date => a instanceof Date,
-  /** checks if object, ie basically unknown */
-  obj: (a: unknown): a is unknown => typeof a === "object" && !Is.arr(a),
+  /** checks if a var is a function */
+  fnc: <T>(a: T): T extends Fnc ? true : false =>
+    (typeof a === "function") as anyOk,
+  /** checks if a var is a map */
+  map: <T>(a: T): T extends Map<anyOk, anyOk> ? true : false =>
+    (a instanceof Map) as anyOk,
+  /** checks if null */
+  null: (a: unknown): a is null => a === null,
   /** checks if a var is a number */
   num: (a: unknown): a is number => typeof a === "number",
+  /** checks if is a Primitive */
+  primitive: (a: unknown): a is Primitive =>
+    Is.scalar(a) || Is.buffer(a) || Is.fnc(a) || Is.regex(a) || Is.sym(a),
+  /** checks if a var can be JSON serialized */
+  serializable: <T>(a: T): T extends Serializable ? true : false =>
+    Is.arr(a) ||
+    Is.bigint(a) ||
+    Is.bool(a) ||
+    Is.buffer(a) ||
+    Is.date(a) ||
+    Is.fnc(a) ||
+    Is.map(a) ||
+    Is.null(a) ||
+    Is.num(a) ||
+    // Is.regex(a) || // technically serializable, but into a string
+    Is.set(a) ||
+    Is.str(a) ||
+    // Is.sym(a) || // technically serializable, into "Symbol(value)"
+    (Is.undef(a) as anyOk), // technically is just omitted
+  /** checks if var is a scalar */
+  scalar: (a: anyOk): a is Scalar =>
+    Is.bigint(a) ||
+    Is.bool(a) ||
+    Is.date(a) ||
+    Is.null(a) ||
+    Is.num(a) ||
+    Is.str(a) ||
+    Is.undef(a),
   /** checks if a var is a RegExp */
   regex: (a: unknown): a is RegExp => a instanceof RegExp,
+  /** checks if a var is a set */
+  set: <T>(a: T): T extends Set<anyOk> ? true : false =>
+    (a instanceof Set) as anyOk,
   /** checks if a var is a string */
   str: (a: unknown): a is string => typeof a === "string",
   /** checks if a var is a symbol */
@@ -130,6 +192,25 @@ export const Is = {
   /** checks if a var is undefined */
   undef: (a: unknown): a is undefined => typeof a === "undefined",
 };
+function foo() {
+  // const a = 1;
+  // const b = "foo";
+  // const c = new Date();
+  // const d = new Map();
+  // const e = new Set();
+  // const f = () => {};
+  // const g = /foo/;
+  const a = Is.serializable(1);
+  const b = Is.serializable("foo");
+  const c = Is.serializable(new Date());
+  const d = Is.serializable(new Map<string, string>());
+  const e = Is.serializable(new Set<string>());
+  const f = Is.serializable(() => {});
+  const g = Is.serializable(/foo/);
+  const h = Is.serializable(null);
+  const i = Is.serializable(undefined);
+  const j = Is.serializable(logDefault);
+}
 
 /** makes a Dict from an array of objects, keyed by `key` */
 export const keyBy = <T>(arr: T[], key: string) =>
@@ -139,30 +220,13 @@ export const keyBy = <T>(arr: T[], key: string) =>
   }, {} as HashM<T>);
 export const keyByC = cachify(keyBy);
 
-export const md5 = (srcOrSrcs: anyOk) => {
+export const md5 = (srcOrSrcs: (string | Buffer) | (string | Buffer)[]) => {
   const hash = cryptoNode.createHash("md5");
-  let srcs = srcOrSrcs as (string | Buffer)[];
-  if (!Is.arr(srcOrSrcs)) srcs = [srcOrSrcs];
-  srcs.forEach((b) => {
-    if (Is.obj(b)) b = str(b);
-    if (!Is.buffer(b)) b = `${b}`;
+  A.from(srcOrSrcs).forEach((b) => {
     hash.update(b);
   });
   return hash.digest("base64url");
 };
-
-/**
- * The type of mult objs in an array combined using '&'
- * see O.ass for an example.
- */
-type Combine<T extends object[]> = T extends [infer First, ...infer Rest]
-  ? First extends object
-    ? Rest extends object[]
-      ? Combine<Rest> & First
-      : never
-    : never
-  : // eslint-disable-next-line @typescript-eslint/ban-types
-    {};
 
 /** aliases for Object */
 export const O = {
@@ -171,102 +235,137 @@ export const O = {
     Object.assign(...(args as unknown as [anyOk])),
   /** A super basic compare check */
   compare: (o1: anyOk, o2: anyOk) => {
-    const added = new Set<string>();
-    const removed = new Set<string>();
-    Object.entries(o1).map(([k, v]) => o2[k] !== v && added.add(k));
-    Object.entries(o2).map(([k, v]) => o1[k] !== v && removed.add(k));
+    const { added, removed } = A.compare(O.keys(o1), O.keys(o2));
+    const changed = O.ents(o2).reduce((acc, [k, v]) => {
+      if (k in o1 && o1[k] !== v) acc.push(k);
+      return acc;
+    }, [] as string[]);
+
     return {
+      equals:
+        added.length + changed.length + removed.length === 0 ? true : false,
       added,
-      delta: [...added, ...removed],
+      changed: O.fromEnts(changed.map((c) => [c, [o1[c], o2[c]]])),
       removed,
     };
   },
   /** An alias for Object.entries */
   ents: ((...args: [anyOk]) =>
     Object.entries(...args)) as ObjectConstructor["entries"],
-  /** A super basic equality check */
-  equals: (o1: anyOk, o2: anyOk) => !O.compare(o1, o2).delta.length,
   /** An alias for Object.fromEntries */
   fromEnts: ((...args: [anyOk]) =>
     Object.fromEntries(...args)) as ObjectConstructor["fromEntries"],
   /** An alias for Object.keys */
   keys: (obj: HashM<anyOk>): string[] => Object.keys(obj),
-  /** returns a copy of an obj sorted by key */
-  toSorted: <T extends HashM<anyOk>>(obj: T): T =>
-    O.keys(obj)
+  /** Omit keys from an obj */
+  omit: <T extends HashM<anyOk>, K extends keyof T>(
+    obj: T,
+    keys: readonly K[] | K[]
+  ): Omit<T, K> => {
+    const res = O.ass({}, obj);
+    keys?.forEach((k) => {
+      if (k in obj) delete res[k];
+    });
+    return res;
+  },
+  /** Deletes the keys of an obj and returns the pre-purged obj  */
+  purge: (obj: anyOk, opts: SMM = {}): anyOk => {
+    const { excludes, includes } = opts;
+    const before = { ...obj };
+    for (const k in obj) {
+      if (strMatchMany(k, { excludes, includes })) {
+        delete obj[k];
+      }
+    }
+    return before;
+  },
+  /**
+   * Renames a key of an obj while preserving its' order
+   */
+  renameKey: <T extends HashM<anyOk>, O extends keyof T, N extends string>(
+    obj: T,
+    oldKey: O,
+    newKey: N,
+    inPlace?: boolean
+  ): Omit<T, O> & { [K in N]: T[O] } => {
+    const before = { ...obj };
+    let after: anyOk = {};
+    if (inPlace) {
+      after = obj;
+      O.purge(obj);
+    }
+    O.ents(before).forEach(([k, v]) => {
+      after[k === oldKey ? newKey : k] = v;
+    });
+    return after;
+  },
+  /**
+   * RegExp replaces keys of an obj while preserving its' order
+   *
+   * use renameKey if a simple string bc more typestrict
+   */
+  replKeys: <T extends HashM<anyOk>>(
+    obj: T,
+    strReplFrom: RegExp, // use renameKey if a simple string bc more typestrict
+    strReplTo: string,
+    inPlace?: boolean
+  ): Partial<T> => {
+    const before = { ...obj };
+    let after: anyOk = {};
+    if (inPlace) {
+      after = obj;
+      O.purge(obj);
+    }
+    O.ents(before).forEach(([k, v]) => {
+      after[k.replace(strReplFrom, strReplTo)] = v;
+    });
+    return after;
+  },
+  /** sorts an obj by key, returning the sorted copy or sorts in place if inPlace is true */
+  sort: <T extends HashM<anyOk>>(obj: T, inPlace?: boolean): T => {
+    const sorted = O.keys(obj)
       .toSorted()
       .reduce((result: anyOk, key: string) => {
         result[key] = obj[key];
         return result;
-      }, {}),
+      }, {});
+    if (inPlace) {
+      O.purge(obj);
+      O.ents(sorted).forEach(([k, v]) => {
+        (obj as anyOk)[k] = v;
+      });
+      return obj;
+    }
+    return sorted;
+  },
   /** An alias for Object.values */
   vals: ((...args: [anyOk]) =>
     Object.values(...args)) as ObjectConstructor["values"],
   /** Get the values of a multi-level nested object */
-  valsRecursive: <T extends Primitive>(...args: [anyOk]): T[] => {
-    const vals = O.vals(...args);
+  valsRecursive: <T extends object>(obj: T): ValOfRecursive<T>[] => {
+    const ents = O.ents(obj);
     const valsDeep: anyOk[] = [];
-    vals.map((v) => {
+    ents.forEach(([k, v]) => {
+      if (!Is.serializable(v)) {
+        throw stepErr(
+          "valsRecursive: non-serializable value",
+          "O.valsRecursive",
+          { k, v }
+        );
+      }
+      if (Is.primitive(v)) valsDeep.push(v);
+      // @ts-expect-error - may be infinite recursion. be careful!
       if (Is.arr(v)) valsDeep.push(...v.map(O.valsRecursive));
-      else if (Is.obj(v)) valsDeep.push(...O.valsRecursive(v));
-      else valsDeep.push(v);
+      else valsDeep.push(...O.valsRecursive(v));
     });
     return valsDeep.flat();
   },
-};
-
-/** omit kets from an object */
-export const omit = <T extends Record<string, anyOk>, K extends keyof T>(
-  obj: T,
-  keys: readonly K[] | K[]
-): Omit<T, K> => {
-  const res = O.ass({}, obj);
-  keys?.forEach((k) => {
-    if (k in obj) delete res[k];
-  });
-  return res;
 };
 
 /** alias for Promise */
 export const P = O.ass(Promise, {
   wr: Promise.withResolvers,
 });
-
-export interface PkgJsonFields {
-  dependencies?: Dict;
-  description?: string;
-  devDependencies?: Dict;
-  // exports
-  exports?: {
-    [glob: string]: {
-      [importOrRequire: string]: {
-        types?: string;
-        default?: string;
-      };
-    };
-  };
-  files?: string[];
-  main?: string;
-  name: string;
-  optionalDependencies?: Dict;
-  peerDependencies?: Dict;
-  private?: boolean;
-  scripts?: Dict;
-  version: string;
-}
-
-/** A return type of a promise */
-export type PReturnType<T extends (...args: anyOk) => Promise<anyOk>> =
-  ReturnType<T> extends Promise<infer U> ? U : never;
-
-export type Primitive =
-  | null
-  | undefined
-  | boolean
-  | number
-  | string
-  | symbol
-  | bigint;
 
 /**
  * similar to Promise.all, but also flushes the list, which is convenient if
@@ -349,6 +448,7 @@ export const strCondense = (
 };
 
 export const strFileEscape = (s: string, replChar = "-") =>
+  // TODO: dont replace periods '.'
   s.replace(/[^a-zA-Z0-9]/g, replChar).replace(/_+/g, "_");
 
 /** Options for strMatchMany */
@@ -376,7 +476,7 @@ export const strMatchMany = (strToTestAgainst: string, opts: SMM) => {
     const includesRExp: RegExp[] = [];
     includesRExp.push(...includes.filter(Is.regex));
     const strs = includes.filter(Is.str);
-    if (Is.arrS(strs)) {
+    if (strs?.length) {
       includesRExp.push(new RegExp(strs.join("|")));
     }
     for (const i of includesRExp) {
@@ -393,7 +493,7 @@ export const strMatchMany = (strToTestAgainst: string, opts: SMM) => {
     const excludesRExp: RegExp[] = [];
     excludesRExp.push(...excludes.filter(Is.regex));
     const strs = excludes.filter(Is.str);
-    if (Is.arrS(strs)) {
+    if (strs?.length) {
       excludesRExp.push(new RegExp(strs.join("|")));
     }
     for (const e of excludesRExp) {
@@ -618,14 +718,14 @@ export class fs {
       } else if (moveInsteadOfCopy) {
         await fs.rename(path, backupPath, { skipBackup: true });
       } else {
-        await fs.copyFile(path, backupPath, { skipBackup: true });
+        await fs.cp(path, backupPath, { skipBackup: true });
       }
     } catch (e: anyOk) {
       throw stepErr(e, `fs.backup`, { backupPath: path });
     }
   };
 
-  static copyFile = async (
+  static cp = async (
     from: string,
     to: string,
     opts: {
@@ -773,6 +873,7 @@ export class fs {
     l4("FS:findNearestWsRoot->start");
     let root = startFrom;
     while (true) {
+      l5(`FS:findNearestWsRoot->${root}`);
       const ws = await fs.getPkgJsonFile(root).catch(() => {});
       if (ws?.json.name === "root") break;
       const configF = await import(`${root}/.bldrrc.mjs`).catch(() => {});
@@ -877,7 +978,13 @@ export class fs {
       },
       /** will set the json and write it to disk */
       setJson: async (json: anyOk) => {
-        await file.set(str(json, 2) + "\n").catch((e) => {
+        const text =
+          str(json, 2)
+            // make empty squigly brackets go to new line like prettier
+            .replace(/{},/g, "{\n  },") +
+          // add new line at end like prettier
+          "\n";
+        await file.set(text).catch((e) => {
           throw stepErr(e, `fs.getJsonFile.setJson`, { setJsonPath: path });
         });
       },
@@ -892,23 +999,27 @@ export class fs {
     const jsonF = await fs.getJsonFile<PkgJsonFields>(path);
     return {
       ...jsonF,
+      /** Disable install and build hooks */
       disableHooks: async () => {
         if (jsonF.json.scripts) {
-          for (const k in jsonF.json.scripts) {
-            if (k.startsWith("pre")) {
-              jsonF.json.scripts[`//${k}`] = jsonF.json.scripts[k];
-            }
-          }
+          O.replKeys(
+            jsonF.json.scripts,
+            /^(preinstall|postinstall|prebuild|postbuild)/,
+            `//$1`,
+            true
+          );
           await jsonF.save();
         }
       },
+      /** re-enable install and build hooks which were disabled */
       enableHooks: async () => {
         if (jsonF.json.scripts) {
-          for (const k in jsonF.json.scripts) {
-            if (k.startsWith("//pre")) {
-              jsonF.json.scripts[k.slice(2)] = jsonF.json.scripts[k];
-            }
-          }
+          O.replKeys(
+            jsonF.json.scripts,
+            /^(\/\/)(preinstall|postinstall|prebuild|postbuild)/,
+            `$2`,
+            true
+          );
           await jsonF.save();
         }
       },
@@ -929,7 +1040,7 @@ export class fs {
             return acc;
           }, {});
         });
-      return O.toSorted(xattrs);
+      return O.sort(xattrs);
     } catch (e) {
       throw stepErr(e, `fs.getXattrs`, { getXattrsPath: path });
     }
@@ -945,16 +1056,24 @@ export class fs {
     }
   };
 
-  /** md5s the recursive contents of files and paths */
+  /**
+   * md5s the recursive contents of files and paths
+   * - returns a Dict of paths and their md5s
+   * - sorts before returning
+   */
   static md5 = async (
     filePathOrPaths: string | [string, ...string[]],
-    opts: SMM & { salts?: string[] } = {}
-  ) => {
+    opts: SMM & {
+      /** will add a 'combined' csum to the result */
+      combine?: boolean;
+      salts?: string[];
+    } = {}
+  ): Promise<Dict> => {
     try {
-      const { excludes, includes, salts = [] } = opts;
-      const paths = A.to(filePathOrPaths);
+      const { combine, excludes, includes } = opts;
+      const paths = A.from(filePathOrPaths);
       if (!paths.length) throw stepErr(Error(`No paths`), "args");
-      const buffers: Buffer[] = [];
+      let md5s: Dict = {};
       await P.all(
         paths.map(async (path) => {
           const shouldInclude = strMatchMany(path, {
@@ -969,22 +1088,28 @@ export class fs {
             });
           });
           if (stat.isFile()) {
-            buffers.push((await fs.getBin(path)).buffer);
+            const buffer = (await fs.getBin(path)).buffer;
+            md5s[path] = md5(buffer);
           } else {
             const pathsRecursive = await fs.find(path, {
               ...opts,
               recursive: true,
               typeFilter: "file",
             });
-            buffers.push(
-              ...(await P.all(
-                pathsRecursive.map((p) => fs.getBin(p).then((r) => r.buffer))
-              ))
+            await P.all(
+              pathsRecursive.map(async (pathR) => {
+                const buffer = await fs
+                  .getBin(fs.resolve(path, pathR))
+                  .then((r) => r.buffer);
+                md5s[pathR] = md5(buffer);
+              })
             );
           }
         })
       );
-      return md5([...buffers, ...salts]);
+      O.sort(md5s, true);
+      const res = combine ? { combined: md5(O.vals(md5s)), ...md5s } : md5s;
+      return res;
     } catch (e: anyOk) {
       throw stepErr(e, `fs.md5`);
     }
@@ -1014,13 +1139,10 @@ export class fs {
         }
       }
     } catch (e: anyOk) {
-      throw O.ass(Error(e), { step: `fs.rename:backup->failed` });
+      throw O.ass(Error(e), { step: `fs.mv:backup->failed` });
     }
     await fsNode.rename(from, to).catch((e) => {
-      throw stepErr(
-        Error(`${e.message};\nfrom:${from}\nto:${to}`),
-        `fs.rename`
-      );
+      throw stepErr(Error(`${e.message};\nfrom:${from}\nto:${to}`), `fs.mv`);
     });
   };
   static rename = fs.mv;
@@ -1029,8 +1151,8 @@ export class fs {
 
   /** Purges a directory */
   static purgeDir = async (path: string, opts: SMM = {}) => {
+    const { excludes, includes } = opts;
     try {
-      const { excludes, includes } = opts;
       const todo = await fs
         .find(path, { includes, excludes, recursive: false })
         .catch(() => []);
@@ -1038,7 +1160,7 @@ export class fs {
       await P.all(todo.map((f) => fs.rm(f, { skipBackup: true })));
       return todo.length;
     } catch (e: anyOk) {
-      throw stepErr(e, `fs.purgeDir`, { path });
+      throw stepErr(e, `fs.purgeDir`, { excludes, includes, path });
     }
   };
 
@@ -1076,6 +1198,7 @@ export class fs {
     } = {}
   ) => {
     const { force, recursive = true, skipBackup = true } = opts;
+    if (path.includes("bldr")) console.log(path, opts);
     try {
       const stat = await fs.stat(path).catch(() => {});
       if (!stat) {
@@ -1087,9 +1210,13 @@ export class fs {
         fs.dirtyFiles[path] = { path, orig: (await fs.get(path)).text };
       }
       if (isFile) {
-        return fsNode.unlink(path);
+        return fsNode.unlink(path).catch((e) => {
+          throw stepErr(e, "unlink: no such file", { rmPath: path });
+        });
       } else {
-        return fsNode.rm(path, { force, recursive });
+        return fsNode.rm(path, { force, recursive }).catch((e) => {
+          throw stepErr(e, "rm: no such file", { rmPath: path });
+        });
       }
     } catch (e: anyOk) {
       if (force) {
@@ -1156,7 +1283,16 @@ export class fs {
     }
   };
 
-  /** sets xattrs (extended attributes) to a file */
+  /**
+   * sets xattrs (extended attributes) to a file
+   *
+   * LIMITS
+   * - keys and values must be strings
+   * - keys must be < 127 bytes
+   * - values must be < 4KB on ext4, 128KB on Mac
+   * - some key prefixes are reserved for special attrs
+   * - size of all xattr combined on a file must be < 4KB on ext4, 128KB on Mac
+   */
   static setXattrs = async (toPath: string, xattrs: Dict) => {
     try {
       const ents = O.ents(xattrs);
@@ -1165,12 +1301,33 @@ export class fs {
       }
       const cmds = ents.map(([k, v]) => {
         if (["", null, undefined].includes(k) || !Is.str(k)) {
-          throw stepErr(Error(`Bad key value`), `check-key`, { key: k });
+          throw stepErr(Error(`Bad key value`), `check-key`, {
+            key:
+              k === undefined
+                ? "undefined"
+                : k === null
+                ? "null"
+                : k === ""
+                ? "empty"
+                : k,
+            val: v,
+          });
         }
-        if (["", null, undefined].includes(v) || !Is.str(k)) {
-          throw stepErr(Error(`Bad value`), `check-val`, { val: v });
+        if (["", null, undefined].includes(v) || !Is.str(v)) {
+          throw stepErr(Error(`Bad value`), `check-val`, {
+            key: k,
+            val:
+              v === undefined
+                ? "undefined"
+                : v === null
+                ? "null"
+                : v === ""
+                ? "empty"
+                : v,
+          });
         }
-        return `xattr -w ${k} "${v}" ${toPath}`;
+        // Using '--' to avoid issues with keys/values starting with '-'
+        return `xattr -w -- "${k}" "${v}" ${toPath}`;
       });
       await sh.exec(cmds.join("; ")).catch((e) => {
         throw stepErr(e, `set`);
@@ -1195,7 +1352,7 @@ export class fs {
         xattrs = await fs.getXattrs(path);
       }
       O.ass(stat, { xattrs });
-      return stat as PReturnType<typeof fsNode.stat> & { xattrs: Dict };
+      return stat as ReturnTypeP<typeof fsNode.stat> & { xattrs: Dict };
     } catch (e) {
       throw stepErr(Error("fsc:File not found"), "fs.stat", {
         statPath: path,
@@ -1485,9 +1642,10 @@ export class Log {
         } else {
           const lines = [];
           lines.push(`${ts} L${n}`);
-          const hasObjs = args.some((a: anyOk[]) => Is.obj(a));
-          if (!hasObjs) lines[0] += ` ${args.join(" ")}`;
-          else lines.push(...args.map(str));
+          const hasObjs = args.some((a: anyOk[]) => !Is.scalar(a));
+          if (hasObjs)
+            lines.push(...args.map((a: anyOk) => (Is.scalar(a) ? a : str(a))));
+          else lines[0] += ` ${args.join(" ")}`;
           txt = lines.join(" ") + "\n";
         }
         Log.appendLogFilePromises.push(fsNode.appendFile(Log.file, txt)); // be lazy about it
@@ -1529,12 +1687,12 @@ export class Log {
 
   lErrCtx = (e: anyOk) => {
     this.l1(e);
-    l1(`ERROR: ${e.message}`);
+    this.l1(`:ERROR: ${e.message}`);
     this.l1(
-      `ERROR:CTX->${str(
+      `:ERROR:CTX->${str(
         {
           step: `${e?.step ?? "unknown"}`,
-          ...omit(e, ["message", "originalColumn", "originalLine", "stack"]),
+          ...O.omit(e, ["message", "originalColumn", "originalLine", "stack"]),
         },
         2
       ).replace(/"/g, "")}`
@@ -1675,6 +1833,8 @@ type TreeNode = {
 };
 
 export class Yarn {
+  /** A file to be used as a lock/mutex to prevent mult yarn install or cache clears from running concurrently */
+  static mutex = "/tmp/yarn-mutex";
   /** Kind of like yarn cache clean, but much faster */
   static cachePurge = async (opts: {
     /** what pkgNames to include. No glob support */
@@ -1687,7 +1847,9 @@ export class Yarn {
       const wsRoot = await fs.findNearestWsRoot();
 
       if (!pkgNames?.length) {
-        await sh.exec("yarn cache clean", { wd: wsRoot });
+        await sh.exec(`yarn cache clean --mutex file:${Yarn.mutex}`, {
+          wd: wsRoot,
+        });
       } else {
         for (const inc of pkgNames) {
           if (inc.includes("*")) {
