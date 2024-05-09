@@ -27,20 +27,7 @@
  *  - The crosslinks of the package are already built and packed into package.tgz
  */
 import arg from "arg";
-import {
-  cachify,
-  fs,
-  Log,
-  logDefault,
-  P,
-  sh,
-  stepErr,
-  Time,
-  UTIL_ENV,
-  A,
-  strCompare,
-  throttle,
-} from "./util.js";
+import { cachify, fs, Log, logDefault, P, sh, stepErr, Time, UTIL_ENV, A, strCompare, throttle } from "./util.js";
 import { Pkg, Bldr } from "./bldr-lib.js";
 import bldrPkgJson from "../package.json";
 
@@ -86,7 +73,7 @@ export class Main {
   build: bootstrap + build + pack
   sync: rsyncs the builds of all cross-linked packages with 
   watch: sync with watch mode
-  `.replace(/^ {2}/gm, "")
+  `.replace(/^ {2}/gm, ""),
     );
     process.exit(exitCode);
   }
@@ -157,25 +144,18 @@ export class Main {
 
     if (!this.action) usage();
 
-    bldr_ENV.ci = UTIL_ENV.ci =
-      args["--ci"] && ["1", "true"].includes(args["--ci"]) ? true : bldr_ENV.ci;
+    bldr_ENV.ci = UTIL_ENV.ci = args["--ci"] && ["1", "true"].includes(args["--ci"]) ? true : bldr_ENV.ci;
     bldr_ENV.logLevel = UTIL_ENV.logLevel =
-      (bldr_ENV.logLevel > 1 && bldr_ENV.logLevel) ||
-      args["--loglevel"] ||
-      (args["--verbose"] ?? 0) + 1;
+      (bldr_ENV.logLevel > 1 && bldr_ENV.logLevel) || args["--loglevel"] || (args["--verbose"] ?? 0) + 1;
 
-    if (args["--show-timestamps"])
-      log.showTimestamps = logDefault.showTimestamps = true;
-    if (args["--show-loglevels"])
-      log.showLogLevels = logDefault.showLogLevels = true;
+    if (args["--show-timestamps"]) log.showTimestamps = logDefault.showTimestamps = true;
+    if (args["--show-loglevels"]) log.showLogLevels = logDefault.showLogLevels = true;
 
     const start = new Date();
 
     let printEndTxt = true;
 
-    l2(
-      `:cmd ${allArgs.join(" ")} at ${bldr_ENV.ci ? "" : start.toISOString()}`
-    );
+    l2(`:cmd ${allArgs.join(" ")} at ${bldr_ENV.ci ? "" : start.toISOString()}`);
 
     l4(`: ENV CI=${bldr_ENV.ci} logLevel=${bldr_ENV.logLevel}`);
 
@@ -195,6 +175,10 @@ export class Main {
         }
         case "exec": {
           await this.exec();
+          break;
+        }
+        case "info": {
+          await this.info();
           break;
         }
         case "tree": {
@@ -268,16 +252,14 @@ export class Main {
   };
 
   private build = async () => {
-    const pkgs = this.args["--all"]
-      ? undefined
-      : await this.getPkgs({ usageOnEmpty: true });
+    const pkgs = this.args["--all"] ? undefined : await this.getPkgs({ usageOnEmpty: true });
     await Bldr.build({
       noCache: this.args["--no-cache"] || false,
       pkgs,
     });
   };
 
-  private clean: any = async () => {
+  private clean = async () => {
     const { args } = this;
     await Bldr.clean({
       all: args["--hard"],
@@ -286,9 +268,7 @@ export class Main {
       excludes: this.excludes,
       includeDependencies: args["--include-dependencies"],
       includeDependents: args["--include-dependents"],
-      includes: args["--all"]
-        ? undefined
-        : await this.getPkgPaths({ usageOnEmpty: true }),
+      includes: args["--all"] ? undefined : await this.getPkgPaths({ usageOnEmpty: true }),
       nodeModulesAll: args["--nodeModulesAll"],
       nodeModuleCrosslinks: args["--nodeModuleCrosslinks"],
       ws: args["--ws"],
@@ -311,10 +291,19 @@ export class Main {
     });
   };
 
+  private info = async () => {
+    const pkg = await this.getPkg();
+    const stats = pkg.bldArtifactFile.exists ? pkg.bldArtifactFile.gattrs.stats : undefined;
+    logDefault.l1(`:INFO: ${pkg.name} ${pkg.json.version} ${pkg.pathRel}`);
+    logDefault.l1(`  - ${pkg.bldArtifactFile.exists ? "built" : "not built"}`);
+    logDefault.l1(`  - install times: ${stats?.installTimes ?? "n/a"}`);
+    logDefault.l1(`  - build times: ${stats?.buildTimes ?? "n/a"}`);
+    logDefault.l1(`  - build sizes: ${stats?.buildSizes ?? "n/a"}`);
+    await this.tree();
+  };
+
   private tree = async () => {
-    const paths = this.args["--all"]
-      ? undefined
-      : await this.getPkgPaths({ usageOnEmpty: true });
+    const paths = this.args["--all"] ? undefined : await this.getPkgPaths({ usageOnEmpty: true });
     await Bldr.treeViz({
       includes: paths,
       excludes: this.excludes,
@@ -374,7 +363,7 @@ export class Main {
   };
 
   private getPkgs = async <T extends boolean>(
-    opts: { excludeAfterDashDash?: boolean; usageOnEmpty?: T } = {}
+    opts: { excludeAfterDashDash?: boolean; usageOnEmpty?: T } = {},
   ): Promise<T extends true ? [Pkg, ...Pkg[]] : Pkg[]> => {
     const { excludeAfterDashDash, usageOnEmpty } = opts;
     const paths = await this.getPkgPaths({
@@ -387,9 +376,7 @@ export class Main {
   };
 
   private getPkgPaths = cachify(
-    async (
-      opts: { excludeAfterDashDash?: boolean; usageOnEmpty?: boolean } = {}
-    ): Promise<[string, ...string[]]> => {
+    async (opts: { excludeAfterDashDash?: boolean; usageOnEmpty?: boolean } = {}): Promise<[string, ...string[]]> => {
       try {
         const { excludeAfterDashDash, usageOnEmpty } = opts;
         const inclDependencies = this.args["--include-dependencies"];
@@ -489,7 +476,7 @@ export class Main {
       } catch (e) {
         throw stepErr(e, "getPkgPaths");
       }
-    }
+    },
   );
 }
 

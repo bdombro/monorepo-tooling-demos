@@ -1,0 +1,3 @@
+{
+  "eslint.options": { "overrideConfigFile": "bldr/eslint.config.js" }
+}

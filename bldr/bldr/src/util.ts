@@ -1,12 +1,15 @@
 #!/usr/bin/env bun
 
-import childProcessNode from "node:child_process";
-import cryptoNode from "node:crypto";
-import { promises as fsNode } from "node:fs";
-import osNode from "node:os";
-import pathNode from "node:path";
+import childProcessN from "node:child_process";
+import cryptoN from "node:crypto";
+import fsN from "node:fs";
+import osN from "node:os";
+import pathN from "node:path";
+import { Readable } from "node:stream";
 import urlNode from "node:url";
 import utilNode from "node:util";
+import equals from "fast-deep-equal";
+import { merge } from "merge-anything";
 
 export const UTIL_ENV = {
   ci: process.env["CI"] === "1" ? true : false,
@@ -17,16 +20,24 @@ export const UTIL_ENV = {
 
 /** Array aliases */
 export const A = {
-  /** a very basic compare */
+  /** shallow compare */
   compare: <A, B>(
     /** from array */
     a: A[],
     /** to array */
-    b: B[]
+    b: B[],
   ) => {
     const added = b.filter((v: anyOk) => !a.includes(v));
+    const changed: A[] = [];
     const removed = a.filter((v: anyOk) => !b.includes(v));
-    return { added, removed };
+    const unchanged: A[] = [];
+    for (const ao of a) {
+      for (const bo of b) {
+        if (equals(ao, bo)) unchanged.push(ao);
+        else changed.push(ao);
+      }
+    }
+    return { added, removed, changed, unchanged };
   },
   /** Depups an array in place */
   dedup: <T>(arr: T[]) => {
@@ -42,61 +53,16 @@ export const A = {
     arr.push(...filtered);
     return arr;
   },
+  from: Array.from,
   /** Note: USE just .sort() instead -- sorts an array in place alphabetically */
   // sortAlpha: <T extends string[]>(arr: T): T => arr.sort(strCompare),
   /** Depups an array */
   toDedup: <T>(arr: T[]): T[] => [...new Set(arr)],
-  /** A better Array.from that will turn anything into an array */
-  // from: <T>(arg: T): T extends ArrayLike<anyOk> ? T : T[] => {
-  from: <
-    // the default if we just convert to array by wrapping in brackets ie [ANY]
-    ANY,
-    // Map key/val types
-    M1,
-    M2,
-    // Record key/val types
-    R1 extends string | number | symbol,
-    R2,
-    // Set val type
-    S
-  >(
-    arg: Map<M1, M2> | Record<R1, R2> | ANY
-  ): ANY extends anyOk[]
-    ? ANY
-    : ANY extends
-        | bigint
-        | boolean
-        | Buffer
-        | Date
-        | Fnc
-        | number
-        | RegExp
-        | string
-        | symbol
-        | undefined
-    ? ANY[]
-    : ANY extends Map<M1, M2>
-    ? [M1, M2][]
-    : ANY extends Set<S>
-    ? S[]
-    : ANY extends Record<R1, R2>
-    ? [R1, R2][]
-    : ANY[] => {
-    if (Is.arr(arg)) return arg as anyOk;
-    if (Is.map(arg)) return Array.from(arg as Map<anyOk, anyOk>) as anyOk;
-    if (Is.set(arg)) return Array.from(arg as Set<anyOk>) as anyOk;
-    // if (Is.scalar(arg)) return [arg] as anyOk;
-    return [arg] as anyOk;
-  },
-  equals: <T>(a: T[], b: T[]) =>
-    a.length === b.length && a.every((v, i) => v === b[i]),
+  equals: <T>(a: T[], b: T[]) => a.length === b.length && a.every((v, i) => v === b[i]),
 };
 
 type Cachified<T extends Fnc> = (
-  ...args: [
-    ...Parameters<T>,
-    opts?: { bustCache?: boolean; setCache?: ReturnType<T> | ReturnTypeP<T> }
-  ]
+  ...args: [...Parameters<T>, opts?: { bustCache?: boolean; setCache?: ReturnType<T> | ReturnTypeP<T> }]
 ) => ReturnType<T>;
 /**
  * Wraps an async function with a simple cache
@@ -143,18 +109,15 @@ export const Is = {
   /** checks if a var is a date */
   date: (a: unknown): a is Date => a instanceof Date,
   /** checks if a var is a function */
-  fnc: <T>(a: T): T extends Fnc ? true : false =>
-    (typeof a === "function") as anyOk,
+  fnc: <T>(a: T): T extends Fnc ? true : false => (typeof a === "function") as anyOk,
   /** checks if a var is a map */
-  map: <T>(a: T): T extends Map<anyOk, anyOk> ? true : false =>
-    (a instanceof Map) as anyOk,
+  map: <T>(a: T): T extends Map<anyOk, anyOk> ? true : false => (a instanceof Map) as anyOk,
   /** checks if null */
   null: (a: unknown): a is null => a === null,
   /** checks if a var is a number */
   num: (a: unknown): a is number => typeof a === "number",
   /** checks if is a Primitive */
-  primitive: (a: unknown): a is Primitive =>
-    Is.scalar(a) || Is.buffer(a) || Is.fnc(a) || Is.regex(a) || Is.sym(a),
+  primitive: (a: unknown): a is Primitive => Is.scalar(a) || Is.buffer(a) || Is.fnc(a) || Is.regex(a) || Is.sym(a),
   /** checks if a var can be JSON serialized */
   serializable: <T>(a: T): T extends Serializable ? true : false =>
     Is.arr(a) ||
@@ -173,18 +136,11 @@ export const Is = {
     (Is.undef(a) as anyOk), // technically is just omitted
   /** checks if var is a scalar */
   scalar: (a: anyOk): a is Scalar =>
-    Is.bigint(a) ||
-    Is.bool(a) ||
-    Is.date(a) ||
-    Is.null(a) ||
-    Is.num(a) ||
-    Is.str(a) ||
-    Is.undef(a),
+    Is.bigint(a) || Is.bool(a) || Is.date(a) || Is.null(a) || Is.num(a) || Is.str(a) || Is.undef(a),
   /** checks if a var is a RegExp */
   regex: (a: unknown): a is RegExp => a instanceof RegExp,
   /** checks if a var is a set */
-  set: <T>(a: T): T extends Set<anyOk> ? true : false =>
-    (a instanceof Set) as anyOk,
+  set: <T>(a: T): T extends Set<anyOk> ? true : false => (a instanceof Set) as anyOk,
   /** checks if a var is a string */
   str: (a: unknown): a is string => typeof a === "string",
   /** checks if a var is a symbol */
@@ -192,25 +148,6 @@ export const Is = {
   /** checks if a var is undefined */
   undef: (a: unknown): a is undefined => typeof a === "undefined",
 };
-function foo() {
-  // const a = 1;
-  // const b = "foo";
-  // const c = new Date();
-  // const d = new Map();
-  // const e = new Set();
-  // const f = () => {};
-  // const g = /foo/;
-  const a = Is.serializable(1);
-  const b = Is.serializable("foo");
-  const c = Is.serializable(new Date());
-  const d = Is.serializable(new Map<string, string>());
-  const e = Is.serializable(new Set<string>());
-  const f = Is.serializable(() => {});
-  const g = Is.serializable(/foo/);
-  const h = Is.serializable(null);
-  const i = Is.serializable(undefined);
-  const j = Is.serializable(logDefault);
-}
 
 /** makes a Dict from an array of objects, keyed by `key` */
 export const keyBy = <T>(arr: T[], key: string) =>
@@ -220,51 +157,84 @@ export const keyBy = <T>(arr: T[], key: string) =>
   }, {} as HashM<T>);
 export const keyByC = cachify(keyBy);
 
-export const md5 = (srcOrSrcs: (string | Buffer) | (string | Buffer)[]) => {
-  const hash = cryptoNode.createHash("md5");
-  A.from(srcOrSrcs).forEach((b) => {
-    hash.update(b);
-  });
-  return hash.digest("base64url");
+export const md5 = (
+  srcOrSrcs: (string | Buffer) | (string | Buffer)[],
+  opts: {
+    /** prefix a step on error. Is convenient to avoid wrapping in try/catch just to add a step. */
+    errStep?: string;
+  } = {},
+) => {
+  const { errStep } = opts;
+  const srcs = Is.arr(srcOrSrcs) ? srcOrSrcs : [srcOrSrcs];
+  try {
+    const hash = cryptoN.createHash("md5");
+    for (const src of srcs) {
+      try {
+        hash.update(src);
+      } catch (e: anyOk) {
+        throw stepErr(e, "update", { md5Src: src });
+      }
+    }
+    try {
+      const res = hash.digest("base64url");
+      return res;
+    } catch (e) {
+      throw stepErr(e, "digest");
+    }
+  } catch (e: anyOk) {
+    throw stepErr(e, `${errStep ? `${errStep}:` : ""}md5`, { md5Srcs: srcs });
+  }
 };
 
 /** aliases for Object */
 export const O = {
   /** An alias for Object.assign */
-  ass: <T extends anyOk[]>(...args: T): Combine<T> =>
-    Object.assign(...(args as unknown as [anyOk])),
+  ass: <T extends anyOk[]>(...args: T): Combine<T> => Object.assign(...(args as unknown as [anyOk])),
   /** A super basic compare check */
-  compare: (o1: anyOk, o2: anyOk) => {
-    const { added, removed } = A.compare(O.keys(o1), O.keys(o2));
-    const changed = O.ents(o2).reduce((acc, [k, v]) => {
-      if (k in o1 && o1[k] !== v) acc.push(k);
-      return acc;
-    }, [] as string[]);
+  compare: <O1 extends Record<anyOk, anyOk>, O2 extends Record<anyOk, anyOk>>(o1: O1, o2: O2) => {
+    const added: (keyof O2)[] = [];
+    const changed: (keyof O1)[] = [];
+    const removed: (keyof O1)[] = [];
+    const unchanged: (keyof O1)[] = [];
+
+    // loop through k,v of o1
+    for (const k in o1) {
+      if (k in o2) {
+        if (equals(o1[k], o2[k])) unchanged.push(k);
+        else changed.push(k);
+      } else removed.push(k);
+    }
+    added.push(...O.keys(o2).filter((k) => !(changed.includes(k) || removed.includes(k) || unchanged.includes(k))));
 
     return {
-      equals:
-        added.length + changed.length + removed.length === 0 ? true : false,
+      equals: added.length + changed.length + removed.length === 0 ? true : false,
       added,
-      changed: O.fromEnts(changed.map((c) => [c, [o1[c], o2[c]]])),
+      changed,
       removed,
     };
   },
+  cp: <T>(o: T): ReadonlyNot<T> => structuredClone(o),
   /** An alias for Object.entries */
-  ents: ((...args: [anyOk]) =>
-    Object.entries(...args)) as ObjectConstructor["entries"],
+  ents: ((...args: [anyOk]) => Object.entries(...args)) as ObjectConstructor["entries"],
   /** An alias for Object.fromEntries */
-  fromEnts: ((...args: [anyOk]) =>
-    Object.fromEntries(...args)) as ObjectConstructor["fromEntries"],
-  /** An alias for Object.keys */
-  keys: (obj: HashM<anyOk>): string[] => Object.keys(obj),
-  /** Omit keys from an obj */
-  omit: <T extends HashM<anyOk>, K extends keyof T>(
-    obj: T,
-    keys: readonly K[] | K[]
-  ): Omit<T, K> => {
+  fromEnts: ((...args: [anyOk]) => Object.fromEntries(...args)) as ObjectConstructor["fromEntries"],
+  /** An alias for Object.keys with better types */
+  keys: <T extends HashM<anyOk>>(obj: T): (keyof T)[] => Object.keys(obj) as anyOk,
+  merge,
+  /** Create a copy that excludes the keys specified */
+  omit: <T extends HashM<anyOk>, K extends keyof T>(obj: T, omitKeys: K[]): Omit<T, K> => {
     const res = O.ass({}, obj);
-    keys?.forEach((k) => {
-      if (k in obj) delete res[k];
+    omitKeys?.forEach((omk) => {
+      if (omk in obj) delete res[omk];
+    });
+    return res;
+  },
+  /** Create a copy that includes only the keys specified */
+  pick: <T extends HashM<anyOk>, K extends keyof T>(obj: T, keyOrKeys: K | K[]): Pick<T, K> => {
+    const keys = Is.arr(keyOrKeys) ? keyOrKeys : [keyOrKeys];
+    const res = { ...obj };
+    O.keys(obj).forEach((ok) => {
+      if (!keys.includes(ok as anyOk)) delete res[ok];
     });
     return res;
   },
@@ -286,7 +256,7 @@ export const O = {
     obj: T,
     oldKey: O,
     newKey: N,
-    inPlace?: boolean
+    inPlace?: boolean,
   ): Omit<T, O> & { [K in N]: T[O] } => {
     const before = { ...obj };
     let after: anyOk = {};
@@ -305,11 +275,11 @@ export const O = {
    * use renameKey if a simple string bc more typestrict
    */
   replKeys: <T extends HashM<anyOk>>(
-    obj: T,
+    obj: HashM<anyOk>,
     strReplFrom: RegExp, // use renameKey if a simple string bc more typestrict
     strReplTo: string,
-    inPlace?: boolean
-  ): Partial<T> => {
+    inPlace?: boolean,
+  ): T => {
     const before = { ...obj };
     let after: anyOk = {};
     if (inPlace) {
@@ -325,7 +295,7 @@ export const O = {
   sort: <T extends HashM<anyOk>>(obj: T, inPlace?: boolean): T => {
     const sorted = O.keys(obj)
       .toSorted()
-      .reduce((result: anyOk, key: string) => {
+      .reduce((result: anyOk, key) => {
         result[key] = obj[key];
         return result;
       }, {});
@@ -339,19 +309,14 @@ export const O = {
     return sorted;
   },
   /** An alias for Object.values */
-  vals: ((...args: [anyOk]) =>
-    Object.values(...args)) as ObjectConstructor["values"],
+  vals: ((...args: [anyOk]) => Object.values(...args)) as ObjectConstructor["values"],
   /** Get the values of a multi-level nested object */
   valsRecursive: <T extends object>(obj: T): ValOfRecursive<T>[] => {
     const ents = O.ents(obj);
     const valsDeep: anyOk[] = [];
     ents.forEach(([k, v]) => {
       if (!Is.serializable(v)) {
-        throw stepErr(
-          "valsRecursive: non-serializable value",
-          "O.valsRecursive",
-          { k, v }
-        );
+        throw stepErr("valsRecursive: non-serializable value", "O.valsRecursive", { k, v });
       }
       if (Is.primitive(v)) valsDeep.push(v);
       // @ts-expect-error - may be infinite recursion. be careful!
@@ -373,7 +338,7 @@ export const P = O.ass(Promise, {
  */
 export const pAll: typeof Promise.all = async (
   // @ts-expect-error - it's fine
-  ps
+  ps,
 ) => {
   // splice bc it gets cranky otherwise
   return Promise.all(ps.splice(0, ps.length));
@@ -402,17 +367,20 @@ export const strAnsiEscapeExp =
   // eslint-disable-next-line no-control-regex
   /(?:\x1B[@-Z\\-_]|\x9B|\x1B\[)[0-?]*[ -/]*[@-~]/g;
 
-export const str = (o: anyOk, spaces?: number): string =>
-  JSON.stringify(
+export const str = (o: anyOk, spaces?: number, opts: { printUndefineds?: boolean } = {}): string => {
+  const { printUndefineds } = opts;
+  return JSON.stringify(
     o,
     (k, v) => {
       if (v instanceof Error) return { ...v, stack: v.stack };
       if (v instanceof Map) return O.fromEnts(v.entries());
       if (v instanceof Set) return A.from(v);
+      if (printUndefineds && v === undefined) return "undefined";
       return v;
     },
-    spaces ? 2 : 0
+    spaces ? 2 : 0,
   );
+};
 
 export const str2 = (o: anyOk): string => {
   if (!o) return "";
@@ -433,10 +401,7 @@ export const str2 = (o: anyOk): string => {
 /** Alias for localCompare, useful for sorting alphabetically */
 export const strCompare = (a: string, b: string) => a.localeCompare(b);
 
-export const strCondense = (
-  s: string,
-  opts: { removeStyle?: boolean } = {}
-): string => {
+export const strCondense = (s: string, opts: { removeStyle?: boolean } = {}): string => {
   const { removeStyle = true } = opts;
   s = s
     .split("\n")
@@ -447,9 +412,7 @@ export const strCondense = (
   return s;
 };
 
-export const strFileEscape = (s: string, replChar = "-") =>
-  // TODO: dont replace periods '.'
-  s.replace(/[^a-zA-Z0-9]/g, replChar).replace(/_+/g, "_");
+export const strFileEscape = (s: string, replChar = "-") => s.replace(/[^.a-zA-Z0-9]/g, replChar).replace(/_+/g, "_");
 
 /** Options for strMatchMany */
 export interface SMM {
@@ -463,10 +426,7 @@ export const strMatchMany = (strToTestAgainst: string, opts: SMM) => {
   const { excludes, includes } = opts;
 
   if (includes && includes.length === 0) {
-    throw stepErr(
-      Error(`includes is an empty array. This is probably a mistake.`),
-      "strMatchMany"
-    );
+    throw stepErr(Error(`includes is an empty array. This is probably a mistake.`), "strMatchMany");
   }
 
   let includeMatch: RegExp | true | null = null;
@@ -506,7 +466,7 @@ export const strMatchMany = (strToTestAgainst: string, opts: SMM) => {
 
   if (includes?.length && includeMatch && excludeMatch) {
     l1(
-      `WARNING: strMatchMany matched both include:${includeMatch} and exclude:${excludeMatch} on string ${strToTestAgainst}`
+      `WARNING: strMatchMany matched both include:${includeMatch} and exclude:${excludeMatch} on string ${strToTestAgainst}`,
     );
   }
 
@@ -528,21 +488,16 @@ export const throttle = <Fn extends FncP>(
     logForWaitFrequencyMs?: number;
     logForWaitUpdates?: LogFn;
     maxConcurrent?: number;
-  } = {}
+  } = {},
 ): Fn => {
-  const {
-    logForWaitFrequencyMs = 10000,
-    logForWaitUpdates: log = l2,
-    maxConcurrent = osNode.cpus().length,
-  } = opts;
+  const { logForWaitFrequencyMs = 10000, logForWaitUpdates: log = l2, maxConcurrent = osN.cpus().length } = opts;
   let queueCount = 0;
   const _p: Promise<anyOk>[] = [];
   const throttled = async (...args: anyOk) => {
     queueCount++;
     const i = setInterval(
-      () =>
-        log(`${queueCount} task(s) waiting for activeCount < maxConcurrent`),
-      logForWaitFrequencyMs
+      () => log(`${queueCount} task(s) waiting for activeCount < maxConcurrent`),
+      logForWaitFrequencyMs,
     );
     while (_p.length >= maxConcurrent) {
       await P.race(_p);
@@ -551,6 +506,7 @@ export const throttle = <Fn extends FncP>(
     clearInterval(i);
     const p = fn(...args);
     _p.push(p);
+    // eslint-disable-next-line @typescript-eslint/no-floating-promises
     p.finally(() => _p.splice(_p.indexOf(p), 1));
     return p;
   };
@@ -565,72 +521,43 @@ export const throwErr = (e: anyOk, ...extra: anyOk): never => {
   throw O.ass(e, extra);
 };
 
-// const cache: Dict<{
-//   bin: string;
-//   ts: number;
-// }> = {};
-
-// const cacheService = {
-//   get: async (csum: string) => {
-//     if (csum in cache) return cache[csum];
-//     return null;
-//   },
-//   put: async (csum: string, bin: string) => {
-//     cache[csum] = { bin, ts: Date.now() };
-//   },
-// };
-
-export class AbstractCache {
+export class AbstractCache<ATTRS extends HashM<anyOk>> {
   static csumType: string;
-  add!: (
-    key: string,
-    buffer: Buffer,
-    opts?: { attrs?: Dict }
-  ) => Promise<AbstractCacheStat>;
-  get!: (
-    key: string,
-    opts?: { attrs?: boolean }
-  ) => Promise<AbstractCacheStat & { buffer: Buffer }>;
-  stat!: (
-    key: string,
-    opts?: { attrs?: boolean }
-  ) => Promise<AbstractCacheStat>;
+  add!: (key: string, buffer: Buffer, opts?: { attrs?: ATTRS }) => Promise<AbstractCacheStat<ATTRS>>;
+  get!: (key: string, opts?: { attrs?: boolean }) => Promise<AbstractCacheStat<ATTRS> & { buffer: Buffer }>;
+  stat!: (key: string, opts?: { attrs?: boolean }) => Promise<AbstractCacheStat<ATTRS>>;
 }
-export interface AbstractCacheStat {
-  attrs: Dict;
+export interface AbstractCacheStat<ATTRS> {
+  attrs: ATTRS;
   key: string;
   size: bigint;
   ts: Date;
 }
-export class LocalCache extends AbstractCache {
+export class LocalCache<ATTRS extends HashM<anyOk>> extends AbstractCache<ATTRS> {
   static csumType = "md5";
-  public path: string;
 
-  constructor(opts: { path: string }) {
+  constructor(public cacheDir: string) {
     super();
-    this.path = opts.path;
+    fsN.mkdirSync(cacheDir, { recursive: true });
   }
-  add = async (key: string, buffer: Buffer, opts: { attrs?: Dict } = {}) => {
+  add = async (key: string, buffer: Buffer, opts: { attrs?: ATTRS } = {}) => {
     try {
       l5(`LCACHE:put->${key}`);
       const { attrs } = opts;
-      await this.init();
-      const toPath = this.cPath(key);
-      await fs.setBin(toPath, buffer, { xattrs: attrs });
-      // get stat without attrs bc we already have attrs to save a fs call
+      const cacheFile = this.getFile(key);
+      await cacheFile.set({ buffer, gattrs: attrs });
       const stat = await this.stat(key);
-      Object.assign(stat, { attrs });
       return stat;
     } catch (e: anyOk) {
       throw stepErr(e, "LCACHE:add", { key });
     }
   };
+
   get = async (key: string) => {
     try {
       l5(`LCACHE:get->${key}`);
-      await this.init();
-      const stat = await this.stat(key, { attrs: true });
-      const buffer = (await fs.getBin(this.cPath(key))).buffer;
+      const cacheFile = this.getFile(key);
+      const [buffer, stat] = await P.all([cacheFile.bufferP(), this.stat(key)]);
       return {
         ...stat,
         buffer,
@@ -639,123 +566,586 @@ export class LocalCache extends AbstractCache {
       throw stepErr(e, "LCACHE.get", { key });
     }
   };
-  init = cachify(async () => {
-    try {
-      l5("LCACHE:init");
-      const stat = await fs.stat(this.path).catch(() => {});
-      if (stat) return;
-      await fsNode.mkdir(this.path, { recursive: true });
-    } catch (e: anyOk) {
-      throw stepErr(e, "LCACHE.init");
-    }
-  });
+
+  private getFile(key: string) {
+    return fs.get<anyOk, ATTRS>(`${this.cacheDir}/${key}`);
+  }
+
   purge = async (opts: SMM = {}) => {
     try {
       l3("LCACHE:purge");
-      await this.init();
       const { excludes, includes } = opts;
-      const count = await fs.purgeDir(this.path, { excludes, includes });
+      const files = (await fs.find(this.cacheDir, { excludes, includes })).map(fs.get);
+      const count = await P.all(files.map((f) => f.del()));
       return count;
     } catch (e: anyOk) {
       throw stepErr(e, "LocalCache:purge");
     }
   };
-  stat = async (key: string, opts: { attrs?: boolean } = {}) => {
-    l5(`LCACHE:stat->${key}`);
-    const { attrs } = opts;
-    await this.init();
-    const path = this.cPath(key);
-    const stat = await fs.stat(path, { xattrs: attrs }).catch(() => {
-      throw stepErr(Error(`key not found: ${key}`), "LCACHE:stat");
-    });
-    return {
-      attrs: stat.xattrs,
-      key,
-      size: BigInt(stat.size),
-      ts: new Date(stat.mtime),
+
+  stat = async (key: string) => {
+    try {
+      l5(`LCACHE:stat->${key}`);
+      const file = this.getFile(key);
+      const stat = await file.statP().catch(() => {
+        throw stepErr(Error(`key not found: ${key}`), "LCACHE:stat");
+      });
+      return {
+        attrs: await file.gattrsP(),
+        key,
+        size: BigInt(stat.size),
+        ts: new Date(stat.mtime),
+      };
+    } catch (e: anyOk) {
+      throw stepErr(e, "LCACHE:stat", { key });
+    }
+  };
+}
+
+/**
+ * An OOP style file interface class
+ *
+ * - provides lazy getters for buffer, json, text, ghost attrs, xattrs with caches
+ * - provides async methods to get, reset, save, set
+ * - tip: if performance is a concern, consider promise methods for async operations unless you're confident
+ *   that you already pumped caches. File.read is handy for pumping caches.
+ */
+class File<
+  /** Type of json */
+  JSON,
+  /** Type of ghost attrs */
+  GATTRS,
+> {
+  constructor(path: string) {
+    this._path = path;
+  }
+
+  append(buffer: Buffer | string) {
+    this.buffer = Buffer.concat([this.buffer, Is.buffer(buffer) ? buffer : Buffer.from(buffer)]);
+    return this;
+  }
+  appendP = async (buffer: string | Buffer) => {
+    await this.bufferP();
+    this.append(buffer);
+    return this;
+  };
+
+  get basename() {
+    return pathN.basename(this.path);
+  }
+
+  // Call this if the buffer, or file was moved
+  cacheReset = () => {
+    delete this.bufferLast;
+    delete this.jsonLast;
+    delete this.md5Last;
+    delete this.gattrsLast;
+  };
+
+  /** Gets a buffer from cache or reads synchronously */
+  get buffer(): Buffer {
+    try {
+      if (!this.bufferLast) {
+        this.cacheReset();
+        try {
+          this.bufferLast = fsN.readFileSync(this.path);
+        } catch (e) {
+          this.bufferLast = Buffer.from("", "utf-8");
+          this.bufferDirty = true;
+        }
+      }
+      return this.bufferLast;
+    } catch (e: anyOk) {
+      throw stepErr(e, `F:buffer`, { bufferPath: this.path });
+    }
+  }
+  /** Gets buffer from cache or reads with a promise  */
+  bufferP = async () => {
+    try {
+      if (!this.bufferLast) {
+        if (this.exists) {
+          this.bufferLast = await fsN.promises.readFile(this.path);
+        } else {
+          this.bufferLast = Buffer.from("", "utf-8");
+          this.bufferDirty = true;
+        }
+      }
+      return this.bufferLast;
+    } catch (e: anyOk) {
+      throw stepErr(e, `F:bufferP`, { bufferPath: this.path });
+    }
+  };
+  set buffer(buffer: Buffer | string) {
+    this.cacheReset();
+    this.bufferLast = Is.buffer(buffer) ? buffer : Buffer.from(buffer);
+    this.bufferDirty = true;
+  }
+  /** Set var, -- but returns this -- for chaining */
+  bufferSet(buffer: Buffer | string) {
+    this.buffer = buffer;
+    return this;
+  }
+  private bufferDirty = false;
+  private bufferLast?: Buffer;
+
+  del = async (skipgGattrsDel?: boolean) => {
+    await fs.rm(this.path, { force: true });
+    if (!skipgGattrsDel) await this.gattrsF.del(true);
+    this.cacheReset();
+    delete this.existsLast;
+    delete this.statLast;
+  };
+
+  get dirname() {
+    return pathN.dirname(this.path);
+  }
+
+  get exists() {
+    if (this.existsLast === undefined) {
+      this.existsLast = fsN.existsSync(this.path);
+    }
+    return this.existsLast;
+  }
+  existsP = async () => {
+    if (this.existsLast === undefined) {
+      this.existsLast = await fsN.promises.exists(this.path);
+    }
+    return this.existsLast;
+  };
+  private existsAssert = () => {
+    if (!this.exists) {
+      throw stepErr(Error(`File does not exist: ${this.path}`), "F:exists", {
+        filePath: this.path,
+      });
+    }
+  };
+  private existsAssertP = async () => {
+    await this.existsP();
+    this.existsAssert();
+  };
+  private existsLast?: boolean;
+
+  /**
+   * Ghost attributes are a way to store metadata about a file in a hidden ghost file
+   *
+   * The path of the ghost file is the same as the file it is associated with,
+   * but in {pkg}/node_modules/.cache/.bldr/ghosts/ instead of the original path.
+   * Therefore, if you move the file without moving the ghost file, the ghost file
+   * will not be findable automatically.
+   *
+   * This is kinda like a low-tech LevelDB for files.
+   */
+  get gattrs(): Readonly<GATTRS> {
+    if (this.gattrsLast) return this.gattrsLast;
+    if (!this.exists) {
+      this.gattrsF.del().catch(() => {});
+      throw stepErr(Error(`Trying to get gattrs on file which d.n.e.`), "F:gattrs", {
+        filePath: this.path,
+      });
+    }
+    const attrs = this.gattrsF.json;
+    const attrsNoHidden = O.omit(attrs, ["hidden"]) as Readonly<GATTRS>;
+    this.gattrsLast = attrsNoHidden;
+    return attrsNoHidden;
+  }
+  gattrsP = async (): Promise<Readonly<GATTRS>> => {
+    try {
+      if (this.gattrsLast) return this.gattrsLast;
+      l4(`F:gattrsP->${this.path}`);
+      const exists = await this.existsP();
+      if (!exists) {
+        this.gattrsF.del().catch(() => {});
+        throw Error(`Trying to get gattrs on file which d.n.e.`);
+      }
+      const attrs = await this.gattrsF.jsonP();
+      const attrsNoHidden = O.omit(attrs, ["hidden"]) as Readonly<GATTRS>;
+      this.gattrsLast = attrsNoHidden;
+      return attrsNoHidden;
+    } catch (e: anyOk) {
+      throw stepErr(e, "F:gattrsP", {
+        filePath: this.path,
+        gattrsPath: this._gattrsPath,
+      });
+    }
+  };
+  private get gattrsF() {
+    if (!this.gattrsFLast) {
+      this.gattrsFLast = new File<GATTRS & FileGattrsHidden, anyOk>(this._gattrsPath);
+    }
+    return this.gattrsFLast;
+  }
+  gattrsSet = (to: GATTRS) => {
+    this.gattrsLast = to;
+    this.gattrsDirty = true;
+    return this;
+  };
+  /**
+   * sets gattrs but with a promise read to this.gattrsF.jsonP()
+   */
+  gattrsSetP = async (to: GATTRS) => {
+    const toWithHidden = O.ass({}, await this.gattrsF.jsonP(), to);
+    this.gattrsF.jsonSet(toWithHidden);
+    return this;
+  };
+  /** merge an obj into gattrs */
+  gattrsSetM(obj: PartialR<GATTRS>) {
+    this.gattrsSet(O.merge(this.gattrs, obj) as anyOk);
+    return this;
+  }
+  /** merge an obj into gattrs with a promise read */
+  gattrsSetMP = async (obj: PartialR<GATTRS>) => {
+    await this.gattrsP();
+    this.gattrsSetM(obj);
+    return this;
+  };
+  private gattrsFLast?: File<GATTRS & FileGattrsHidden, anyOk>;
+  private gattrsLast?: GATTRS;
+  private gattrsDirty = false;
+  private _gattrsDir = `${fs.home}/.bldr/gattrs`;
+  private get _gattrsPath() {
+    return this._gattrsDir + this.path.replace(fs.home, "").replace(/\//g, ".");
+  }
+
+  /** gets json from cache or reads it synchronously */
+  get json(): Readonly<JSON> {
+    if (this.jsonLast) return this.jsonLast;
+    try {
+      this.jsonLast = this.text ? JSON.parse(this.text) : {};
+    } catch (e: anyOk) {
+      throw stepErr(e, "F:json", { jsonPath: this.path });
+    }
+    return this.jsonLast!;
+  }
+  jsonP = async () => {
+    await this.textP();
+    return this.json;
+  };
+  /**
+   * sets the value of the json obj to be stored on the file.
+   * - note: we intentionally do NOT have a set() bc File won't detect
+   *   changes to the inner json obj, and it's too easy to make that
+   *   mistake. I tried a proxy, but it got to complicated.
+   */
+  jsonSet(to: JSON) {
+    // Format it like Prettier does
+    this.text = str(to, 2).replace(/{}/g, "{\n  }") + "\n";
+    this.jsonLast = to;
+    return this;
+  }
+  /** merge an obj into json */
+  jsonSetM(obj: PartialR<JSON>) {
+    this.jsonSet(O.merge(this.json, obj) as anyOk);
+    return this;
+  }
+  /** merge an obj into json with a promise read */
+  jsonSetMP = async (obj: PartialR<JSON>) => {
+    await this.jsonP();
+    this.jsonSetM(obj);
+    return this;
+  };
+  private jsonLast?: JSON;
+
+  get md5() {
+    if (!this.md5Last) this.md5Last = md5(this.buffer);
+    return this.md5Last;
+  }
+  md5P = async () => {
+    await this.bufferP();
+    return this.md5;
+  };
+  private md5Last?: string;
+
+  /** path: the path of the file. Using getter to block setting */
+  get path(): string {
+    return this._path;
+  }
+  private _path;
+
+  /** Moves the file */
+  mv = async (to: string) => {
+    const from = this.path;
+    try {
+      l5(`F:mv->${from} -> ${to}`);
+      if (from === to) return this;
+      if (!from) throw stepErr(Error(`From path cannot be empty`), "F:mv", { from });
+      if (!to) throw stepErr(Error(`To path cannot be empty`), "F:mv", { to });
+      if (!(await fsN.promises.exists(from))) {
+        throw stepErr(Error(`From path does not exist: ${from}`), "F:mv", {
+          from,
+        });
+      }
+      if (await fsN.promises.exists(to)) {
+        await fsN.promises.rm(to);
+      }
+      await fsN.promises.mkdir(pathN.dirname(to), { recursive: true });
+      await fsN.promises.rename(this.path, to);
+
+      if (this.gattrsFLast) {
+        await this.gattrsFLast.mv(`${this._gattrsPath}/${this.path}`);
+      }
+
+      this._path = to;
+      this.existsLast = true;
+      return this;
+    } catch (e: anyOk) {
+      throw stepErr(e, "F:mv", { from, to });
+    }
+  };
+
+  /** Read all file data from disk. Is nice if you want to pump caches. */
+  read = async () => {
+    l4(`F:read->${this.path}`);
+    await this.existsAssertP();
+    await this.gattrsP();
+    await this.statP();
+    await this.bufferP();
+    return this;
+  };
+
+  save = async () => {
+    try {
+      const exists = await this.existsP();
+      if (exists) {
+        if (this.bufferDirty) {
+          l5(`F:save->${this.path}`);
+          await fs.set(this.path, this.buffer);
+          this.bufferDirty = false;
+        }
+      } else {
+        this.gattrsF.del().catch(() => {});
+        await fs.mkdir(pathN.dirname(this.path));
+        await fs.set(this.path, this.buffer);
+        this.bufferDirty = false;
+      }
+
+      this.existsLast = true;
+      delete this.statLast;
+
+      if (this.gattrsDirty) {
+        const gattrsLast = await this.gattrsF.jsonP();
+        const gattrsOnlyHidden = O.pick(gattrsLast, ["hidden"]);
+        const gattrsNext = { ...this.gattrs, ...gattrsOnlyHidden };
+        await this.gattrsF.set({ json: gattrsNext });
+      }
+      await this.saveXattrs();
+
+      return this;
+    } catch (e) {
+      throw stepErr(e, "F:save", { savePath: this.path });
+    }
+  };
+
+  /** A convenience method to set buffer and attrs and save in a single call */
+  set = async (
+    opts: {
+      buffer?: Buffer;
+      gattrs?: GATTRS;
+      /** merge with gattrs  */
+      gattrsM?: PartialR<GATTRS>;
+      json?: JSON;
+      /** merge with json  */
+      jsonM?: PartialR<JSON>;
+      text?: string;
+      xattrs?: Dict;
+    } = {},
+  ) => {
+    try {
+      const _p: Promise<anyOk>[] = [];
+      const { buffer, gattrs, gattrsM, json, jsonM, text, xattrs } = opts;
+      if (buffer) this.buffer = buffer;
+      if (text) this.text = text;
+      if (json) this.jsonSet(json);
+      if (jsonM) _p.push(this.jsonSetMP(jsonM));
+      if (xattrs) this.xattrs = xattrs;
+      if (gattrs) this.gattrsSet(gattrs);
+      if (gattrsM) _p.push(this.gattrsSetMP(gattrsM));
+      await P.all(_p);
+      await this.save();
+      return this;
+    } catch (e) {
+      throw stepErr(e, "F:set", { setPath: this.path });
+    }
+  };
+
+  snapshot = async (name: string) => {
+    const gattrs: GATTRS & FileGattrsHidden = await this.gattrsF.jsonP();
+    if (!gattrs.hidden) gattrs.hidden = {};
+    if (!gattrs.hidden.snapshots) gattrs.hidden.snapshots = {};
+    gattrs.hidden.snapshots[name] = (await this.bufferP()).toString("base64");
+    return this.gattrsF.set({ json: gattrs });
+  };
+  snapshotGet = async (name: string) => {
+    const gattrs = await this.gattrsF.jsonP();
+    const snap64 = gattrs?.hidden?.snapshots?.[name];
+    if (!snap64) {
+      throw stepErr(Error(`Snapshot not found: ${name}`), "F:snapshotRestore", {
+        snap64,
+      });
+    }
+    const snap = Buffer.from(snap64, "base64");
+    const res = {
+      buffer: snap,
+      get text() {
+        return snap.toString("utf-8");
+      },
+      get json() {
+        return JSON.parse(res.text);
+      },
+    };
+    return res;
+  };
+  snapshotRestore = async (name: string) => {
+    const snap = await this.snapshotGet(name);
+    return this.set({ buffer: snap.buffer });
+  };
+
+  private statLast?: fsN.Stats;
+  get stat() {
+    if (this.statLast) return this.statLast;
+    l4(`F:stat->${this.path}`);
+    this.existsAssert();
+    this.statLast = fsN.statSync(this.path);
+    return this.statLast;
+  }
+  statP = async () => {
+    if (this.statLast) return this.statLast;
+    l4(`F:statP->${this.path}`);
+    await this.existsAssertP();
+    this.statLast = await fsN.promises.stat(this.path);
+    return this.statLast;
+  };
+
+  get stream() {
+    let stream: Readable;
+    if (this.bufferLast) {
+      stream = Readable.from(this.bufferLast);
+    } else {
+      stream = fsN.createReadStream(this.path);
+    }
+    return stream;
+  }
+
+  /** gets text from buffer (or cache if buffer is cached) */
+  get text() {
+    const text = this.buffer.toString("utf-8"); // note: toString="" for empty files
+    return text;
+  }
+  /** get text from buffer (or cache if buffer is cached) using a promise */
+  textP = async () => {
+    await this.bufferP();
+    return this.text;
+  };
+  set text(to: string) {
+    this.buffer = to;
+  }
+  /** Set var, -- but returns this -- for chaining */
+  textSet(to: string) {
+    this.text = to;
+    return this;
+  }
+
+  /**
+   * gets/sets xattrs (extended attributes) to a file
+   *
+   * LIMITS
+   * - keys and values must be strings
+   * - keys must be < 127 bytes
+   * - values must be < 4KB on ext4, 128KB on Mac
+   * - some key prefixes are reserved for special attrs
+   * - size of all xattr combined on a file must be < 4KB on ext4, 128KB on Mac
+   */
+  get xattrs() {
+    if (!this._xattrs) {
+      try {
+        const xattrsRaw = childProcessN.execFileSync(`xattr -l ${this.path}`);
+        this._xattrs = xattrsRaw
+          .toString()
+          .split("\n")
+          .reduce<Dict>((acc, line) => {
+            const [name, value] = line.split(":");
+            if (name && value) {
+              acc[name.trim()] = value.trim();
+            }
+            return acc;
+          }, {});
+
+        O.sort(this._xattrs, true);
+      } catch (e) {
+        throw stepErr(Error("fsgx: file not found"), `fs.getXattrs`, {
+          getXattrsPath: this.path,
+        });
+      }
+    }
+    if (!this._xattrsOrig) this._xattrsOrig = this._xattrs;
+    return this._xattrs;
+  }
+  set xattrs(xattrs: Dict) {
+    this._xattrs = xattrs;
+    if (!this._xattrsOrig) this._xattrsOrig = this._xattrs;
+  }
+  private _xattrs?: Dict;
+  private _xattrsOrig?: Dict;
+  private saveXattrs = async () => {
+    if (!this._xattrs) return;
+    if (equals(this._xattrs, this._xattrsOrig)) return;
+    try {
+      const ents = O.ents(this._xattrs);
+      if (!ents.length) {
+        throw stepErr(Error(`Empty xattrs`), `saveXattrs`);
+      }
+      const cmds = ents.map(([k, v]) => {
+        if (["", null, undefined].includes(k) || !Is.str(k)) {
+          throw stepErr(Error(`Bad key value`), `check-key`, {
+            key: k === undefined ? "undefined" : k === null ? "null" : k === "" ? "empty" : k,
+            val: v,
+          });
+        }
+        if (["", null, undefined].includes(v) || !Is.str(v)) {
+          throw stepErr(Error(`Bad value`), `check-val`, {
+            key: k,
+            val: v === undefined ? "undefined" : v === null ? "null" : v === "" ? "empty" : v,
+          });
+        }
+        // Using '--' to avoid issues with keys/values starting with '-'
+        return `xattr -w -- "${k}" "${v}" ${this.path}`;
+      });
+      await sh.exec(cmds.join("; "));
+    } catch (e) {
+      throw stepErr(e, `f.setXattrs`, {
+        setXattrsPath: this.path,
+        xattrs: this.xattrs,
+      });
+    }
+  };
+}
+interface FileGattrsHidden {
+  hidden?: {
+    snapshots?: {
+      [name: string]: string;
     };
   };
-  cPath = (key: string) => `${this.path}/${key}`;
 }
 
 /** Filesystem (aka fs) - helpers */
 export class fs {
-  static basename = pathNode.basename;
-
-  /**
-   * Backups files for debugging and troubleshooting purposes
-   * to: `/tmp/lerna-crosslink-build/${timestamp}`
-   */
-  static backup = async (
-    path: string,
-    opts: {
-      text?: string;
-      moveInsteadOfCopy?: boolean;
-    } = {}
-  ) => {
+  static append = async (path: string, data: string) => {
     try {
-      const { text = null, moveInsteadOfCopy = false } = opts;
-
-      await fs.tmpDirCreate();
-      const wsRoot = await fs.findNearestWsRoot();
-
-      if (!path.startsWith(wsRoot)) {
-        throw stepErr(Error(`path not in workspace`), `wsroot`, {
-          backupPath: path,
-        });
-      }
-
-      let backupPath = "";
-      for (let i = 0; i < Infinity; i++) {
-        backupPath =
-          `${fs.tmpDir}/${strFileEscape(path, ".")}-` +
-          String(i).padStart(2, "0");
-        if (!(await fs.stat(backupPath).catch(() => {}))) break;
-      }
-
-      if (text) {
-        await fs.set(backupPath, text, { skipBackup: true });
-      } else if (moveInsteadOfCopy) {
-        await fs.rename(path, backupPath, { skipBackup: true });
-      } else {
-        await fs.cp(path, backupPath, { skipBackup: true });
-      }
-    } catch (e: anyOk) {
-      throw stepErr(e, `fs.backup`, { backupPath: path });
+      await fsN.promises.appendFile(path, data);
+    } catch (e) {
+      throw stepErr(e, "fs.append", { appendPath: path });
     }
   };
 
-  static cp = async (
-    from: string,
-    to: string,
-    opts: {
-      skipBackup?: boolean;
-    } = {}
-  ) => {
+  static basename = pathN.basename;
+
+  static cp = async (from: string, to: string) => {
     try {
       const toStat = await fs.stat(to).catch(() => {});
-
-      try {
-        const { skipBackup = false } = opts;
-        if (!skipBackup) {
-          if (toStat) {
-            await fs.backup(to);
-            if (!(to in fs.dirtyFiles)) {
-              fs.dirtyFiles[to] = { path: to, orig: (await fs.get(to)).text };
-            }
-          } else {
-            await fs.createdFiles.push(to);
-          }
-        }
-      } catch (e: anyOk) {
-        throw stepErr(e, `backup`);
-      }
-
       if (toStat?.isDirectory()) {
         to = `${to}/${fs.basename(from)}`;
       }
 
-      await fsNode.copyFile(from, to).catch((e) => {
+      await fsN.promises.copyFile(from, to).catch((e) => {
         throw stepErr(e, "copyFile");
       });
     } catch (e: anyOk) {
@@ -765,12 +1155,16 @@ export class fs {
 
   static createdFiles: string[] = [];
 
-  static dirname = pathNode.dirname;
+  static dirname = pathN.dirname;
 
   static dirtyFiles: HashM<{
     orig: string;
     path: string;
   }> = {};
+
+  static exists = async (path: string) => {
+    return fsN.promises.exists(path);
+  };
 
   /** get file list from cache or fs */
   // FIXME: replace usages of sh.find with this
@@ -789,13 +1183,12 @@ export class fs {
         typeFilter?: "file" | "dir";
         /** internal use: how deep we are if recursing */
         currentDepth?: number;
-      } = {}
+      } = {},
     ): Promise<string[]> => {
       try {
         l5(`fs.find:start->${pathToFindIn}`);
 
-        if (pathToFindIn[0] !== "/")
-          pathToFindIn = pathNode.resolve(process.cwd(), pathToFindIn);
+        if (pathToFindIn[0] !== "/") pathToFindIn = pathN.resolve(process.cwd(), pathToFindIn);
 
         const {
           currentDepth = 0,
@@ -811,13 +1204,12 @@ export class fs {
 
         if (includes?.length) {
           for (const inc of includes) {
-            if (Is.str(inc) && inc.startsWith("/"))
-              throw Error(`includes must be relative`);
+            if (Is.str(inc) && inc.startsWith("/")) throw Error(`includes must be relative`);
           }
         }
 
         let paths: string[] = [];
-        await fsNode
+        await fsN.promises
           .readdir(pathToFindIn, { withFileTypes: true })
           .then(async (rdResults) =>
             P.all(
@@ -847,8 +1239,8 @@ export class fs {
                   if (typeFilter === "file" && !isFile) return false;
                 }
                 paths.push(rdResAbsPath);
-              })
-            )
+              }),
+            ),
           )
           .catch(() => {
             throw stepErr(Error("Path not found"), `readdir`);
@@ -862,7 +1254,7 @@ export class fs {
       } catch (e) {
         throw stepErr(e, `fs.find`, { pathToLs: pathToFindIn });
       }
-    }
+    },
   );
 
   /**
@@ -874,17 +1266,18 @@ export class fs {
     let root = startFrom;
     while (true) {
       l5(`FS:findNearestWsRoot->${root}`);
-      const ws = await fs.getPkgJsonFile(root).catch(() => {});
-      if (ws?.json.name === "root") break;
+      const ws = await fs
+        .getPkgJsonFile(root)
+        .jsonP()
+        .catch(() => {});
+      if (ws?.name === "root") break;
       const configF = await import(`${root}/.bldrrc.mjs`).catch(() => {});
-      if (configF?.config) break;
+      if (configF?.default) break;
       const next = fs.resolve(root, "..");
       if (next === root) {
         throw stepErr(
-          Error(
-            "No package.json:name=root or .bldrrc.mjs found in the directory tree"
-          ),
-          "findNearestWsRoot"
+          Error("No package.json:name=root or .bldrrc.mjs found in the directory tree"),
+          "findNearestWsRoot",
         );
       }
       root = next;
@@ -893,166 +1286,59 @@ export class fs {
     return root;
   });
 
+  static fileURLToPath = urlNode.fileURLToPath;
+
   /** get's a file object */
-  static get = cachify(
-    async (
-      path: string,
-      opts: {
-        xattrs?: boolean;
-      } = {}
-    ) => {
-      try {
-        const { xattrs } = opts;
-        const text = await fsNode.readFile(path, "utf-8").catch(() => {
-          throw stepErr(Error(`fg:file not found`), `readfile`);
-        });
-        const file = {
-          /** resets the file to the original state when first read */
-          reset: async () => {
-            l5(`FS:get->reset ${path}`);
-            await fs.set(path, text).catch((e) => {
-              throw stepErr(e, `FS:get.reset`, { rstPath: path });
-            });
-            l5(`FS:get->reset-success ${path}`);
-          },
-          save: async () => {
-            return fs.set(path, file.text);
-          },
-          set: (newText: string) => {
-            return fs.set(path, newText);
-          },
-          xattrs: xattrs ? await fs.getXattrs(path) : {},
-          text,
-        };
-        return file;
-      } catch (e: anyOk) {
-        throw stepErr(e, `fs.get`, { getPath: path });
-      }
+  static get = <JSON, GHOSTS>(path: string) => {
+    let file = fs._getCache.get(path);
+    if (!file) {
+      file = new File(path);
+      fs._getCache.set(path, file);
     }
-  );
-
-  /** Gets the contents of a file as a buffer */
-  static getBin = async (
-    path: string,
-    opts: {
-      xattrs?: boolean;
-    } = {}
-  ) => {
-    try {
-      const { xattrs } = opts;
-      const buffer = await fsNode.readFile(path).catch(() => {
-        throw stepErr(Error(`fgb:file not found`), `fs.getBin`, {
-          binPath: path,
-        });
-      });
-      return {
-        buffer,
-        xattrs: xattrs ? await fs.getXattrs(path) : {},
-      };
-    } catch (e: anyOk) {
-      throw stepErr(e, `fs.getBin`, { getBinPath: path });
-    }
+    return file as File<JSON, GHOSTS>;
   };
-
-  /** get json file */
-  static getJsonFile = async <T>(path: string) => {
-    const file = await fs.get(path);
-    const json = JSON.parse(file.text) as T;
-    const jsonF = {
-      ...file,
-      json,
-      jsonOrig: json,
-      path,
-      /** will reset to the original values when first read */
-      reset: async () => {
-        await file.reset().catch((e) => {
-          throw stepErr(e, `fs.getJsonFile.reset`, { resetJsonPath: path });
-        });
-        jsonF.json = jsonF.jsonOrig;
-      },
-      /** will save to fs whatever the current values in json are */
-      save: async () => {
-        await jsonF.setJson(jsonF?.json).catch((e) => {
-          throw stepErr(e, `fs.getJsonFile.save`, { saveJsonPath: path });
-        });
-      },
-      /** will set the json and write it to disk */
-      setJson: async (json: anyOk) => {
-        const text =
-          str(json, 2)
-            // make empty squigly brackets go to new line like prettier
-            .replace(/{},/g, "{\n  },") +
-          // add new line at end like prettier
-          "\n";
-        await file.set(text).catch((e) => {
-          throw stepErr(e, `fs.getJsonFile.setJson`, { setJsonPath: path });
-        });
-      },
-    };
-    return jsonF;
-  };
+  private static _getCache = new Map<string, File<anyOk, anyOk>>();
 
   /** get package.json file */
-  static getPkgJsonFile = async (pathToPkgOrPkgJson: string) => {
+  static getPkgJsonFile = (pathToPkgOrPkgJson: string) => {
     let path = pathToPkgOrPkgJson;
     if (!path.endsWith("package.json")) path = `${path}/package.json`;
-    const jsonF = await fs.getJsonFile<PkgJsonFields>(path);
-    return {
-      ...jsonF,
+    const jsonF = fs.get<PkgJsonFields, never>(path);
+    const pkgF = O.ass(jsonF, {
       /** Disable install and build hooks */
       disableHooks: async () => {
         if (jsonF.json.scripts) {
-          O.replKeys(
-            jsonF.json.scripts,
-            /^(preinstall|postinstall|prebuild|postbuild)/,
-            `//$1`,
-            true
-          );
-          await jsonF.save();
+          const next = { ...jsonF.json };
+          O.replKeys<PkgJsonFields>(next.scripts!, /^(preinstall|postinstall|prebuild|postbuild)/, `//$1`, true);
+          await jsonF.set({ json: next });
         }
       },
       /** re-enable install and build hooks which were disabled */
       enableHooks: async () => {
         if (jsonF.json.scripts) {
-          O.replKeys(
-            jsonF.json.scripts,
-            /^(\/\/)(preinstall|postinstall|prebuild|postbuild)/,
-            `$2`,
-            true
-          );
-          await jsonF.save();
+          const next = { ...jsonF.json };
+          O.replKeys(next.scripts!, /^(\/\/)(preinstall|postinstall|prebuild|postbuild)/, `$2`, true);
+          await jsonF.set({ json: next });
         }
       },
-    };
+    });
+    return pkgF;
   };
 
-  /** Gets xattrs (extended attributes) from a file, sorted by key */
-  static getXattrs = async (path: string): Promise<Dict> => {
-    try {
-      const xattrs = await sh
-        .exec(`xattr -l ${path}`, { silent: true })
-        .then((res) => {
-          return res.split("\n").reduce<Dict>((acc, line) => {
-            const [name, value] = line.split(":");
-            if (name && value) {
-              acc[name.trim()] = value.trim();
-            }
-            return acc;
-          }, {});
-        });
-      return O.sort(xattrs);
-    } catch (e) {
-      throw stepErr(e, `fs.getXattrs`, { getXattrsPath: path });
-    }
-  };
-
-  static home = osNode.homedir();
+  static home = osN.homedir();
 
   static mkdir = async (path: string) => {
     try {
-      await fsNode.mkdir(path, { recursive: true });
+      await fsN.promises.mkdir(path, { recursive: true });
     } catch (e: anyOk) {
       throw stepErr(e, `fs.mkdir`, { mkdirPath: path });
+    }
+  };
+  static mkdirS = (path: string) => {
+    try {
+      fsN.mkdirSync(path, { recursive: true });
+    } catch (e: anyOk) {
+      throw stepErr(e, `fs.mkdirS`, { mkdirPath: path });
     }
   };
 
@@ -1067,13 +1353,13 @@ export class fs {
       /** will add a 'combined' csum to the result */
       combine?: boolean;
       salts?: string[];
-    } = {}
+    } = {},
   ): Promise<Dict> => {
     try {
       const { combine, excludes, includes } = opts;
-      const paths = A.from(filePathOrPaths);
+      const paths = Is.arr(filePathOrPaths) ? filePathOrPaths : [filePathOrPaths];
       if (!paths.length) throw stepErr(Error(`No paths`), "args");
-      let md5s: Dict = {};
+      const md5s: Dict = {};
       await P.all(
         paths.map(async (path) => {
           const shouldInclude = strMatchMany(path, {
@@ -1088,7 +1374,7 @@ export class fs {
             });
           });
           if (stat.isFile()) {
-            const buffer = (await fs.getBin(path)).buffer;
+            const buffer = (await fs.get(path)).buffer;
             md5s[path] = md5(buffer);
           } else {
             const pathsRecursive = await fs.find(path, {
@@ -1098,14 +1384,13 @@ export class fs {
             });
             await P.all(
               pathsRecursive.map(async (pathR) => {
-                const buffer = await fs
-                  .getBin(fs.resolve(path, pathR))
-                  .then((r) => r.buffer);
+                const pathAbs = await fs.resolve(path, pathR);
+                const buffer = await fsN.promises.readFile(pathAbs);
                 md5s[pathR] = md5(buffer);
-              })
+              }),
             );
           }
-        })
+        }),
       );
       O.sort(md5s, true);
       const res = combine ? { combined: md5(O.vals(md5s)), ...md5s } : md5s;
@@ -1115,49 +1400,22 @@ export class fs {
     }
   };
 
-  static mv = async (
-    from: string,
-    to: string,
-    opts: {
-      skipBackup?: boolean;
-    } = {}
-  ) => {
-    try {
-      const { skipBackup = false } = opts;
-      if (!skipBackup) {
-        await fs.backup(from);
-        if (!(from in fs.dirtyFiles)) {
-          fs.dirtyFiles[from] = { path: from, orig: (await fs.get(from)).text };
-        }
-        if (await fs.stat(to).catch(() => {})) {
-          await fs.backup(to);
-          if (!(to in fs.dirtyFiles)) {
-            fs.dirtyFiles[to] = { path: to, orig: (await fs.get(to)).text };
-          }
-        } else {
-          fs.createdFiles.push(to);
-        }
-      }
-    } catch (e: anyOk) {
-      throw O.ass(Error(e), { step: `fs.mv:backup->failed` });
-    }
-    await fsNode.rename(from, to).catch((e) => {
+  static mv = async (from: string, to: string) => {
+    await fsN.promises.rename(from, to).catch((e) => {
       throw stepErr(Error(`${e.message};\nfrom:${from}\nto:${to}`), `fs.mv`);
     });
   };
   static rename = fs.mv;
 
-  static pathRel = pathNode.relative;
+  static pathRel = pathN.relative;
 
   /** Purges a directory */
   static purgeDir = async (path: string, opts: SMM = {}) => {
     const { excludes, includes } = opts;
     try {
-      const todo = await fs
-        .find(path, { includes, excludes, recursive: false })
-        .catch(() => []);
+      const todo = await fs.find(path, { includes, excludes, recursive: false }).catch(() => []);
       if (!todo?.length) return 0;
-      await P.all(todo.map((f) => fs.rm(f, { skipBackup: true })));
+      await P.all(todo.map((f) => fs.rm(f)));
       return todo.length;
     } catch (e: anyOk) {
       throw stepErr(e, `fs.purgeDir`, { excludes, includes, path });
@@ -1165,40 +1423,13 @@ export class fs {
   };
 
   static read = fs.get;
-  static relative = pathNode.relative;
+  static relative = pathN.relative;
 
-  static resetChangedFiles = async () => {
-    try {
-      const lctx = `FS:resetChangedFiles`;
-      l4(`${lctx}->start!`);
-      await P.all(
-        O.vals(fs.dirtyFiles).map((df) =>
-          fs.set(df.path, df.orig, { skipBackup: true })
-        )
-      );
-      await P.all(
-        fs.createdFiles.map((cf) =>
-          fs.rm(cf, { skipBackup: true }).catch(() => {})
-        )
-      );
-    } catch (e: anyOk) {
-      throw stepErr(e, "fs.resetChangedFiles");
-    }
-  };
-
-  static resolve = pathNode.resolve;
-
-  static fileURLToPath = urlNode.fileURLToPath;
+  static resolve = pathN.resolve;
 
   /** wrapper for fs.rm with defaults and filters */
-  static rm = async (
-    path: string,
-    opts: Parameters<(typeof fsNode)["rm"]>[1] & {
-      skipBackup?: boolean;
-    } = {}
-  ) => {
-    const { force, recursive = true, skipBackup = true } = opts;
-    if (path.includes("bldr")) console.log(path, opts);
+  static rm = async (path: string, opts: Parameters<(typeof fsN.promises)["rm"]>[1] = {}) => {
+    const { force, recursive = true } = opts;
     try {
       const stat = await fs.stat(path).catch(() => {});
       if (!stat) {
@@ -1206,15 +1437,12 @@ export class fs {
         throw stepErr(Error(`frm:path not found`), "stat", { rmPath: path });
       }
       const isFile = stat.isFile();
-      if (!skipBackup && !(path in fs.dirtyFiles) && isFile) {
-        fs.dirtyFiles[path] = { path, orig: (await fs.get(path)).text };
-      }
       if (isFile) {
-        return fsNode.unlink(path).catch((e) => {
+        return fsN.promises.unlink(path).catch((e) => {
           throw stepErr(e, "unlink: no such file", { rmPath: path });
         });
       } else {
-        return fsNode.rm(path, { force, recursive }).catch((e) => {
+        return fsN.promises.rm(path, { force, recursive }).catch((e) => {
           throw stepErr(e, "rm: no such file", { rmPath: path });
         });
       }
@@ -1228,131 +1456,11 @@ export class fs {
     }
   };
 
-  static set = async (
-    toPath: string,
-    text: string,
-    opts: {
-      skipBackup?: boolean;
-      xattrs?: Dict;
-    } = {}
-  ) => {
-    const { skipBackup = false, xattrs } = opts;
-
+  /** gets fs.stat */
+  static stat = async (path: string) => {
     try {
-      if (!skipBackup) {
-        if (await fs.stat(toPath).catch(() => {})) {
-          await fs.backup(toPath);
-          if (!(toPath in fs.dirtyFiles)) {
-            fs.dirtyFiles[toPath] = {
-              path: toPath,
-              orig: (await fs.get(toPath)).text,
-            };
-          }
-        } else {
-          fs.createdFiles.push(toPath);
-        }
-      }
-    } catch (e: anyOk) {
-      throw stepErr(e, `fs.set.backup`, { backupPath: toPath });
-    }
-    try {
-      await fsNode.writeFile(toPath, text, "utf8").catch((e) => {
-        throw stepErr(Error(e.message), `write`);
-      });
-      if (xattrs) {
-        await fs.setXattrs(toPath, xattrs);
-      }
-    } catch (e: anyOk) {
-      throw stepErr(e, `fs.set`, { setPath: toPath });
-    }
-  };
-
-  static setBin = async (
-    toPath: string,
-    bin: Buffer,
-    opts: {
-      xattrs?: Dict;
-    } = {}
-  ) => {
-    const { xattrs } = opts;
-    await fsNode.writeFile(toPath, bin).catch((e) => {
-      throw stepErr(Error(`${e.message}; to:${toPath}`), `fs.setBin`);
-    });
-    if (xattrs) {
-      await fs.setXattrs(toPath, xattrs);
-    }
-  };
-
-  /**
-   * sets xattrs (extended attributes) to a file
-   *
-   * LIMITS
-   * - keys and values must be strings
-   * - keys must be < 127 bytes
-   * - values must be < 4KB on ext4, 128KB on Mac
-   * - some key prefixes are reserved for special attrs
-   * - size of all xattr combined on a file must be < 4KB on ext4, 128KB on Mac
-   */
-  static setXattrs = async (toPath: string, xattrs: Dict) => {
-    try {
-      const ents = O.ents(xattrs);
-      if (!ents.length) {
-        throw stepErr(Error(`Empty xattrs`), `check`);
-      }
-      const cmds = ents.map(([k, v]) => {
-        if (["", null, undefined].includes(k) || !Is.str(k)) {
-          throw stepErr(Error(`Bad key value`), `check-key`, {
-            key:
-              k === undefined
-                ? "undefined"
-                : k === null
-                ? "null"
-                : k === ""
-                ? "empty"
-                : k,
-            val: v,
-          });
-        }
-        if (["", null, undefined].includes(v) || !Is.str(v)) {
-          throw stepErr(Error(`Bad value`), `check-val`, {
-            key: k,
-            val:
-              v === undefined
-                ? "undefined"
-                : v === null
-                ? "null"
-                : v === ""
-                ? "empty"
-                : v,
-          });
-        }
-        // Using '--' to avoid issues with keys/values starting with '-'
-        return `xattr -w -- "${k}" "${v}" ${toPath}`;
-      });
-      await sh.exec(cmds.join("; ")).catch((e) => {
-        throw stepErr(e, `set`);
-      });
-    } catch (e) {
-      throw stepErr(e, `fs.setXattrs`, { setXattrsPath: toPath, xattrs });
-    }
-  };
-
-  /** gets fs.stat + xattr */
-  static stat = async (
-    path: string,
-    opts: {
-      xattrs?: boolean;
-    } = {}
-  ) => {
-    try {
-      const { xattrs: incXattrs } = opts;
-      const stat = await fsNode.stat(path);
-      let xattrs = {};
-      if (incXattrs) {
-        xattrs = await fs.getXattrs(path);
-      }
-      O.ass(stat, { xattrs });
-      return stat as ReturnTypeP<typeof fsNode.stat> & { xattrs: Dict };
+      const stat = await fsN.promises.stat(path);
+      return stat as ReturnTypeP<typeof fsN.promises.stat> & { xattrs: Dict };
     } catch (e) {
       throw stepErr(Error("fsc:File not found"), "fs.stat", {
         statPath: path,
@@ -1360,17 +1468,27 @@ export class fs {
     }
   };
 
-  static tmpDir =
-    `${fs.home}/.bldr/runs/` +
-    new Date()
-      .toISOString()
-      .slice(0, 19)
-      .replace(/(-|T|:)/g, ".");
-  static tmpDirCreate = cachify(async () => {
-    return fs.mkdir(fs.tmpDir).catch((e) => {
-      throw stepErr(e, `fs.tmpDirCreate`);
-    });
-  });
+  static set = async (path: string, data: string | Buffer) => {
+    try {
+      await fsN.promises.writeFile(path, data, Is.str(data) ? "utf8" : undefined);
+    } catch (e) {
+      throw stepErr(e, "fs.set", { setPath: path });
+    }
+  };
+
+  static get tmpDir() {
+    const d =
+      `${fs.home}/.bldr/runs/` +
+      new Date()
+        .toISOString()
+        .slice(0, 19)
+        .replace(/(-|T|:)/g, ".");
+    if (!fs._tmpDirCreated) {
+      fsN.mkdirSync(d, { recursive: true });
+    }
+    return d;
+  }
+  private static _tmpDirCreated = false;
   static tmpDirPurge = async () => {
     l2("purgeTmpDir");
     await fs.rm(fs.tmpDir);
@@ -1379,19 +1497,17 @@ export class fs {
 
 /** Shell / Process helpers aka sh */
 export class sh {
-  static _exec = utilNode.promisify(childProcessNode.exec);
+  static _exec = utilNode.promisify(childProcessN.exec);
 
   static cmdExists = async (
     cmd: string,
     opts: {
       /** Working directory. This may be important if you use .tool-versions */
       wd?: string;
-    } = {}
+    } = {},
   ) => {
     const { wd } = opts;
-    const res = !!(await sh
-      .exec(`command -v ${cmd}`, { silent: true, wd })
-      .catch(() => {}));
+    const res = !!(await sh.exec(`command -v ${cmd}`, { silent: true, wd }).catch(() => {}));
     return res;
   };
   static assertCmdExists = cachify(
@@ -1400,19 +1516,14 @@ export class sh {
       opts: {
         /** Working directory. This may be important if you use .tool-versions */
         wd?: string;
-      } = {}
+      } = {},
     ) => {
       const { wd } = opts;
-      const res = await sh
-        .exec(`command -v ${cmd}`, { silent: true, wd })
-        .catch(() => {
-          throw stepErr(
-            Error(`Command not found: ${cmd}`),
-            `sh.assertCmdExists`
-          );
-        });
+      const res = await sh.exec(`command -v ${cmd}`, { silent: true, wd }).catch(() => {
+        throw stepErr(Error(`Command not found: ${cmd}`), `sh.assertCmdExists`);
+      });
       return res;
-    }
+    },
   );
 
   /** Node exec wrapper with lots of special sauce */
@@ -1429,18 +1540,10 @@ export class sh {
       verbose?: boolean;
       /** working directory */
       wd?: string;
-    } = {}
+    } = {},
   ): Promise<string> => {
     const id = (sh.execCount = (sh.execCount ?? 0) + 1);
-    const {
-      logFilter = () => true,
-      printOutput,
-      rawOutput,
-      silent,
-      throws = true,
-      verbose,
-      wd = process.cwd(),
-    } = opts;
+    const { logFilter = () => true, printOutput, rawOutput, silent, throws = true, verbose, wd = process.cwd() } = opts;
 
     let _log1 = l1;
     let _log4 = l4;
@@ -1451,8 +1554,7 @@ export class sh {
       _log1 = _log4 = l9;
     }
 
-    let { prefix = `sh:${id}:` } = opts;
-    prefix = prefix;
+    const { prefix = `sh:${id}:` } = opts;
 
     /** Special handle the logging of the stdout/err */
     /** Track if out was logged bc we need to log it on error if !silent regardless  */
@@ -1496,7 +1598,7 @@ export class sh {
 
     const cmdFinal = opts.wd ? `cd ${wd} && ${cmd} 2>&1` : cmd;
     const execP = P.wr<string>();
-    const cp = childProcessNode.spawn(cmdFinal, { shell: true });
+    const cp = childProcessN.spawn(cmdFinal, { shell: true });
     cp.stdout.on("data", (data) => logOut(data.toString()));
     cp.stderr.on("data", (data) => logOut(data.toString()));
     cp.on("close", (code) => {
@@ -1512,7 +1614,7 @@ export class sh {
             allout
               .split("\n")
               .map((l) => `${prefix} ${l}`)
-              .join("\n") + "\n"
+              .join("\n") + "\n",
           );
         }
         _log1(`${prefix} ERROR!`);
@@ -1585,9 +1687,7 @@ export class Log {
 
       if (n === 0) {
         console.log(...args);
-        void fs
-          .tmpDirCreate()
-          .then(() => fsNode.appendFile(Log.file, args.join(" ") + "\n"));
+        void fs.append(Log.file, args.join(" ") + "\n");
         return args;
       }
 
@@ -1630,26 +1730,23 @@ export class Log {
       }
 
       // lazily log to file
-      void fs.tmpDirCreate().then(() => {
-        let txt = "";
-        if (isErr) {
-          const lines = [];
-          // dump of the error in a the way that mimics console
-          lines.push(args[0].stack + " {");
-          lines.push(...O.ents(args[0]).map(([k, v]) => `  ${k}: ${v}`));
-          lines.push("}");
-          txt = lines.join("\n") + "\n";
-        } else {
-          const lines = [];
-          lines.push(`${ts} L${n}`);
-          const hasObjs = args.some((a: anyOk[]) => !Is.scalar(a));
-          if (hasObjs)
-            lines.push(...args.map((a: anyOk) => (Is.scalar(a) ? a : str(a))));
-          else lines[0] += ` ${args.join(" ")}`;
-          txt = lines.join(" ") + "\n";
-        }
-        Log.appendLogFilePromises.push(fsNode.appendFile(Log.file, txt)); // be lazy about it
-      });
+      let txt = "";
+      if (isErr) {
+        const lines = [];
+        // dump of the error in a the way that mimics console
+        lines.push(args[0].stack + " {");
+        lines.push(...O.ents(args[0]).map(([k, v]) => `  ${k}: ${v}`));
+        lines.push("}");
+        txt = lines.join("\n") + "\n";
+      } else {
+        const lines = [];
+        lines.push(`${ts} L${n}`);
+        const hasObjs = args.some((a: anyOk[]) => !Is.scalar(a));
+        if (hasObjs) lines.push(...args.map((a: anyOk) => (Is.scalar(a) ? a : str(a))));
+        else lines[0] += ` ${args.join(" ")}`;
+        txt = lines.join(" ") + "\n";
+      }
+      Log.appendLogFilePromises.push(fs.append(Log.file, txt)); // be lazy about it
 
       return args;
 
@@ -1694,8 +1791,9 @@ export class Log {
           step: `${e?.step ?? "unknown"}`,
           ...O.omit(e, ["message", "originalColumn", "originalLine", "stack"]),
         },
-        2
-      ).replace(/"/g, "")}`
+        2,
+        { printUndefineds: true },
+      ).replace(/"/g, "")}`,
     );
   };
 
@@ -1786,15 +1884,9 @@ export class Tree {
       prefix?: string;
       /** internal use */
       isLast?: boolean;
-    } = {}
+    } = {},
   ): string {
-    const {
-      childrenKey = "children",
-      nameKey = "name",
-      level = 0,
-      prefix = "",
-      isLast = true,
-    } = opts;
+    const { childrenKey = "children", nameKey = "name", level = 0, prefix = "", isLast = true } = opts;
 
     const children = node[childrenKey as "children"] ?? [];
     const name = node[nameKey as "name"];
@@ -1863,7 +1955,7 @@ export class Yarn {
               `| xargs dirname | xargs rm -rf`,
             {
               wd: wsRoot,
-            }
+            },
           );
         }
       }

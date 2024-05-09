@@ -19,7 +19,7 @@
       // "args": ["build", "react-app"]
       // "args": ["tree", "lib3"]
       "args": ["build", "lib3"]
-      // "args": ["clean"]
+      // "args": ["clean", "--all", "--ws", "--buildCache"]
       // "args": ["tree", "lib3"]
     },
     {

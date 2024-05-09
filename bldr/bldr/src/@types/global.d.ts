@@ -15,16 +15,10 @@ type FncP = (...args: anyOk[]) => Promise<anyOk>;
 //   : never;
 
 // eslint-disable-next-line @typescript-eslint/ban-types
-type ReturnTypeLoose<T extends Function> = T extends (
-  ...args: anyOk[]
-) => infer R
-  ? R
-  : never;
+type ReturnTypeLoose<T extends Function> = T extends (...args: anyOk[]) => infer R ? R : never;
 
 type ThenArg<T> = T extends PromiseLike<infer U> ? U : T;
-type ReturnTypeP<T extends (...args: anyOk[]) => anyOk> = ThenArg<
-  ReturnType<T>
->;
+type ReturnTypeP<T extends (...args: anyOk[]) => anyOk> = ThenArg<ReturnType<T>>;
 /** A return type of a promise */
 // type ReturnTypeP<T extends (...args: anyOk) => Promise<anyOk>> =
 //   ReturnType<T> extends Promise<infer U> ? U : never;
@@ -40,13 +34,17 @@ type Never<T> = {
  */
 type AllOrNothing<T> = T | Never<T>;
 
+type ReadonlyNot<T> = {
+  -readonly [P in keyof T]: T[P] extends object ? ReadonlyNot<T[P]> : T[P];
+};
+
 /** Accepts any type that's not an array */
 type ArrayNot =
-  | Primitive
-  | {
-      length?: never;
-      [key: string]: anyOk;
-    };
+  // | Primitive
+  {
+    length?: never;
+    [key: string]: anyOk;
+  };
 
 /**
  * The type of mult objs in an array combined using '&'
@@ -60,6 +58,11 @@ type Combine<T extends object[]> = T extends [infer First, ...infer Rest]
     : never
   : // eslint-disable-next-line @typescript-eslint/ban-types
     {};
+
+/** Partial recursive */
+type PartialR<T> = {
+  [P in keyof T]?: T[P] extends (infer U)[] ? PartialR<U>[] : T[P] extends object ? PartialR<T[P]> : T[P];
+};
 
 /** get the values of an obj, like with Object.values */
 type ValOf<T> = T[keyof T];

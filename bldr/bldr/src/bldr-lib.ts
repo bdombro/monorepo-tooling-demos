@@ -22,14 +22,21 @@ import {
   Is,
   strCompare,
   throttle,
+  str,
 } from "./util.js";
 
-const pkgLocalCache = new LocalCache({ path: `${fs.home}/.bldr/cache` });
+const pkgLocalCache = new LocalCache<PkgArtifactAttrs>(`${fs.home}/.bldr/cache`);
 
 export type PkgArtifactAttrs = {
+  stats: {
+    buildTimes: number[];
+    buildSizes: number[];
+    installTimes: number[];
+  };
   pkg: string;
   combined: string;
-  [k: string]: string;
+  deps: Dict;
+  files: Dict;
 };
 
 export class Bldr {
@@ -72,7 +79,7 @@ export class Bldr {
       ws?: boolean;
       /** clean yarn caches: is slow fyi */
       yarnCache?: boolean;
-    }
+    },
   ) => {
     const { excludes, includes, ...flags } = opts;
     try {
@@ -90,8 +97,7 @@ export class Bldr {
 
       if (opts.ws) {
         if (Is.undef(opts.builds)) opts.builds = true;
-        if (Is.undef(opts.nodeModuleCrosslinks))
-          opts.nodeModuleCrosslinks = true;
+        if (Is.undef(opts.nodeModuleCrosslinks)) opts.nodeModuleCrosslinks = true;
       }
 
       await fs.findNearestWsRoot(); // asserts we are in a ws and pumps cache
@@ -103,8 +109,7 @@ export class Bldr {
       });
       const pkgNames = pkgs.map((p) => p.name) as [string]; // cast bc we do length check below
 
-      if (!pkgNames.length)
-        throw stepErr(Error("No packages found for filters"), "clean.find");
+      if (!pkgNames.length) throw stepErr(Error("No packages found for filters"), "clean.find");
 
       if (opts.includeDependencies) {
         pkgs.map((p) => pkgs.push(...p.dependencyClsForInstall));
@@ -122,12 +127,7 @@ export class Bldr {
 
       for (const p of pkgs) {
         Bldr.l2(`:clean:${p.basename}->start`);
-        _p.push(
-          fs.rm(`${p.pathAbs}/.yarn-single-instance.lock`, {
-            force: true,
-            skipBackup: true,
-          })
-        );
+
         if (opts.builds) _p.push(p.cleanBld());
         if (opts.buildCache) _p.push(p.cleanBldCache());
         if (opts.yarnCache) _p.push(p.cleanYarnCache());
@@ -149,7 +149,7 @@ export class Bldr {
       opts: SMM & {
         /** build dependent tree */
         dependents?: boolean;
-      } = {}
+      } = {},
     ) => {
       const { excludes, includes, dependents } = opts;
 
@@ -162,7 +162,7 @@ export class Bldr {
       const pkgBasenames = await Bldr.findPkgPaths({ excludes, includes });
       const pkgs = await P.all(pkgBasenames.map((n) => Bldr.get(n)));
       return pkgs;
-    }
+    },
   );
 
   static getConfig = cachify(async () => {
@@ -170,15 +170,10 @@ export class Bldr {
     interface ConfRaw {
       postBuildSourceCheckIgnores: string[];
     }
-    const confRaw: ConfRaw = await import(`${wsRoot}/.bldrrc.mjs`)
-      .then((m) => m.default)
-      .catch(() => ({}));
+    const confRaw: ConfRaw = await import(`${wsRoot}/.bldrrc.mjs`).then((m) => m.default).catch(() => ({}));
 
     const conf = {
-      postBuildSourceCheckIgnores: [
-        "__generated__",
-        ...(confRaw.postBuildSourceCheckIgnores ?? []),
-      ],
+      postBuildSourceCheckIgnores: ["__generated__", ...(confRaw.postBuildSourceCheckIgnores ?? [])],
     };
 
     return conf;
@@ -191,10 +186,7 @@ export class Bldr {
    */
   static get = async (pathOrName: string): Promise<Pkg> => {
     Bldr.l4(`:get->${pathOrName}`);
-    pathOrName = pathOrName
-      .replace(/\.\/$/, "")
-      .replace(/\.$/, "")
-      .replace(/\/$/, "");
+    pathOrName = pathOrName.replace(/\.\/$/, "").replace(/\.$/, "").replace(/\/$/, "");
 
     if (!pathOrName) pathOrName = process.cwd();
     if (pathOrName.startsWith("@")) pathOrName = pathOrName.split("/")[1];
@@ -236,7 +228,8 @@ export class Bldr {
       pkgPwr.resolve(pkg);
       return pkg;
     } catch (e: anyOk) {
-      e = stepErr(e, "getPkg", { pathOrName: pathOrName });
+      // eslint-disable-next-line no-ex-assign
+      e = stepErr(e, "getPkg", { pathOrName });
       pkgPwr.reject(e);
       throw e;
     }
@@ -249,7 +242,7 @@ export class Bldr {
     cmd: string,
     opts: {
       maxConcurrent?: number;
-    } = {}
+    } = {},
   ) => {
     const { maxConcurrent } = opts;
     const exec = throttle(
@@ -261,18 +254,18 @@ export class Bldr {
         }),
       {
         maxConcurrent,
-      }
+      },
     );
     await P.all(pkgs.map(exec));
   };
 
   static findPkgPaths = async (options: SMM = {}): Promise<string[]> => {
-    let { includes } = options;
+    const { includes } = options;
     const { excludes } = options;
     const wsRoot = await fs.findNearestWsRoot();
     const pkgDir = `${wsRoot}/packages`;
 
-    let paths: string[] = [];
+    const paths: string[] = [];
 
     if (includes?.length) {
       for (let i = 0; i < includes.length; i++) {
@@ -294,16 +287,12 @@ export class Bldr {
           excludes,
           includes,
           typeFilter: "dir",
-        }))
+        })),
       );
     }
 
     if (!paths.length)
-      throw stepErr(
-        Error('No packages found in "packages" directory'),
-        "Pkgs.getPkgNames",
-        { pkgDir }
-      );
+      throw stepErr(Error('No packages found in "packages" directory'), "Pkgs.getPkgNames", { pkgDir });
     paths.sort(strCompare);
     return paths;
   };
@@ -320,21 +309,12 @@ export class Bldr {
 
       txt += `${Log.cyan(pkg.name.toLocaleUpperCase())} \n\n`;
       txt += `--dependencies--\n\n`;
-      txt +=
-        Tree.viz(pkg, { childrenKey: "dependencies", nameKey: "treeName" }) +
-        "\n\n";
+      txt += Tree.viz(pkg, { childrenKey: "dependencies", nameKey: "treeName" }) + "\n\n";
       txt += `--dependents--\n\n`;
-      txt +=
-        Tree.viz(pkg, { childrenKey: "dependents", nameKey: "treeName" }) +
-        "\n\n\n";
+      txt += Tree.viz(pkg, { childrenKey: "dependents", nameKey: "treeName" }) + "\n\n\n";
     }
 
-    txt +=
-      `-----------\n` +
-      `Legend\n` +
-      `↑: has crosslink dependencies\n` +
-      `↓: has crosslink dependents\n` +
-      "\n";
+    txt += `-----------\n` + `Legend\n` + `↑: has crosslink dependencies\n` + `↓: has crosslink dependents\n` + "\n";
 
     if (print) console.log(txt);
   };
@@ -350,7 +330,7 @@ class PkgBase {
     public jsonF: ReturnTypeP<typeof fs.getPkgJsonFile>,
     public pathAbs: string,
     public pathRel: string,
-    public pathWs: string
+    public pathWs: string,
   ) {}
 }
 class PkgWLogs extends PkgBase {
@@ -382,17 +362,8 @@ class PkgWGetSets extends PkgWLogs {
   get json() {
     return this.jsonF.json;
   }
-  set json(json: ReturnTypeP<typeof fs.getPkgJsonFile>["json"]) {
-    this.jsonF.json = json;
-  }
   get name() {
     return this.jsonF.json.name;
-  }
-  get text() {
-    return this.jsonF.text;
-  }
-  set text(text: ReturnTypeP<typeof fs.getPkgJsonFile>["text"]) {
-    this.jsonF.text = text;
   }
 
   bldrConfigGet = cachify(async () => {
@@ -400,9 +371,7 @@ class PkgWGetSets extends PkgWLogs {
     interface PkgConfRaw {
       postBuildSourceCheckIgnores: string[];
     }
-    const pkgConfRaw: PkgConfRaw = await import(
-      `${this.pathAbs}/.pkg.bldrrc.mjs`
-    )
+    const pkgConfRaw: PkgConfRaw = await import(`${this.pathAbs}/.pkg.bldrrc.mjs`)
       .then((m) => m.default)
       .catch(() => ({}));
 
@@ -477,12 +446,9 @@ class PkgWTree extends PkgWGetSets {
             }
             this.dependencyCls.push(pkg);
           }
-        })
+        }),
       );
-      this.dependencyClsForInstall.push(
-        ...this.dependencyClsFlat,
-        ...childrenDDeps
-      );
+      this.dependencyClsForInstall.push(...this.dependencyClsFlat, ...childrenDDeps);
       A.dedup(this.dependencies);
       A.dedup(this.dependencyCls);
       A.dedup(this.dependencyClsFlat);
@@ -538,6 +504,17 @@ class PkgWithBuild extends PkgWTree {
       await this.pkgJsonPreinstall({ noCache });
       await this.pkgJsonInstall();
       await this.pkgJsonPostinstall();
+
+      // update install stats
+      await this.bldArtifactFile.read().then(async (f) => {
+        const gattrs: PartialR<PkgArtifactAttrs> = O.cp(O.pick(f.gattrs, ["stats"]));
+        if (!gattrs.stats) gattrs.stats = {};
+        if (!gattrs.stats.installTimes) gattrs.stats.installTimes = [];
+        gattrs.stats.installTimes.unshift(Date.now() - start);
+        gattrs.stats.installTimes.splice(0, 10);
+        await this.bldArtifactFile.set({ gattrsM: gattrs });
+      });
+
       this.l3(`:bootstrap->end ${Time.diff(start)}`);
     } catch (e: anyOk) {
       throw stepErr(e, "bootstrap");
@@ -559,7 +536,6 @@ class PkgWithBuild extends PkgWTree {
           canSkip = true;
         } else {
           try {
-            // why isn't build skipping on success?
             await this.bldArtifactCacheGet();
             this.l1(`:build->skip-bc-cache-hit`);
             canSkip = true;
@@ -570,9 +546,23 @@ class PkgWithBuild extends PkgWTree {
       if (canSkip) return;
 
       await this.bootstrap({ noCache });
+      const bldStart = Date.now();
       await this.pkgJsonPrebuild();
       await this.pkgJsonBuild();
       await this.pkgJsonPostbuild();
+
+      // update build stats
+      await this.bldArtifactFile.read().then(async (f) => {
+        const gattrs: PartialR<PkgArtifactAttrs> = O.cp(O.pick(f.gattrs, ["stats"]));
+        if (!gattrs.stats) gattrs.stats = {};
+        if (!gattrs.stats.buildTimes) gattrs.stats.buildTimes = [];
+        gattrs.stats.buildTimes.unshift(Date.now() - bldStart);
+        gattrs.stats.buildTimes.splice(0, 10);
+        if (!gattrs.stats.buildSizes) gattrs.stats.buildSizes = [];
+        gattrs.stats.buildSizes.unshift(f.buffer.length);
+        gattrs.stats.buildSizes.splice(0, 10);
+        await this.bldArtifactFile.set({ gattrsM: gattrs });
+      });
 
       this.l3(`:build->end ${Time.diff(start)}`);
     } catch (e: anyOk) {
@@ -585,8 +575,7 @@ class PkgWithBuild extends PkgWTree {
       await P.all([
         fs.rm(`${this.pathAbs}/build`).catch(() => {}),
         fs.rm(`${this.pathAbs}/dist`).catch(() => {}),
-        fs.rm(`${this.pathAbs}/package.json.bak`).catch(() => {}),
-        fs.rm(`${this.pathAbs}/package.tgz`).catch(() => {}),
+        this.bldArtifactFile.del().catch(() => {}),
       ]);
     } catch (e) {
       throw stepErr(e, "pkg.cleanBld");
@@ -618,9 +607,7 @@ class PkgWithBuild extends PkgWTree {
         await fs.rm(`${this.pathAbs}/node_modules`).catch(() => {});
       } else {
         await P.all(
-          this.dependencyClsForInstall.map((cl) =>
-            fs.purgeDir(`${this.pathAbs}/node_modules/${cl.json.name}`)
-          )
+          this.dependencyClsForInstall.map((cl) => fs.purgeDir(`${this.pathAbs}/node_modules/${cl.json.name}`)),
         );
       }
     } catch (e) {
@@ -657,13 +644,13 @@ class PkgWithBuild extends PkgWTree {
 
   private buildDependencies = cachify(async (opts: { noCache: boolean }) => {
     try {
-      // TODO: fix no-cache not working on bldDeps
+      // FIXME: fix no-cache not working on bldDeps
       this.l4(`->buildDependencies`);
       const { noCache } = opts;
       await P.all(
         this.dependencyClsForInstall.map(async (cl) => {
           await cl.build({ noCache });
-        })
+        }),
       );
       return;
     } catch (e) {
@@ -678,49 +665,39 @@ class PkgWithBuild extends PkgWTree {
    */
 
   /** check if build artifact already in workspace is up to date **/
-  private bldArtifactIsUpToDate = cachify(async (): Promise<boolean> => {
+  private bldArtifactIsUpToDate = async (): Promise<boolean> => {
     try {
-      this.l4(`->bldArtifactIsUpToDate`);
-      let existing: Dict;
+      this.l1(`->bldArtifactIsUpToDate`);
+      let existing: PkgArtifactAttrs;
       try {
-        existing = await this.bldArtifactAttrsGet();
+        existing = await this.bldArtifactFile.gattrsP();
       } catch (e) {
-        this.l4(`bldArtifactIsUpToDate->no`);
+        this.l1(`bldArtifactIsUpToDate->no`);
         return false;
       }
       const expected = await this.bldArtifactAttrsCreate();
-      if (existing["combined"] === expected.combined) {
-        this.l2(`:bldArtifactIsUpToDate->yes`);
+      if (existing.combined === expected.combined) {
+        this.l1(`:bldArtifactIsUpToDate->yes`);
         return true;
       }
 
       // if we get here, the bld artifact is not up to date
       // so we log the differences
-      const cmp = O.compare(
-        O.omit(existing, ["combined"]),
-        O.omit(expected, ["combined"])
-      );
+      const cmp = O.compare({ ...existing.deps, ...existing.files }, { ...expected.deps, ...expected.files });
       if (!cmp.equals) {
         this.l2(`:bldArtifactIsUpToDate->no`);
-        cmp.added.forEach((pathRel) =>
-          this.l1(`:bldArtifactIsUpToDate:added-> ${pathRel}`)
-        );
-        O.ents(cmp.changed).forEach(([pathRel]) =>
-          this.l1(`:bldArtifactIsUpToDate:changed-> ${pathRel}`)
-        );
-        cmp.removed.forEach((pathRel) =>
-          this.l1(`:bldArtifactIsUpToDate:removed-> ${pathRel}`)
-        );
+        cmp.added.forEach((pathRel) => this.l1(`:bldArtifactIsUpToDate:added-> ${pathRel}`));
+        cmp.changed.forEach((pathRel) => this.l1(`:bldArtifactIsUpToDate:changed-> ${pathRel}`));
+        cmp.removed.forEach((pathRel) => this.l1(`:bldArtifactIsUpToDate:removed-> ${pathRel}`));
       } else {
-        this.l4(`:bldArtifactIsUpToDate->yes`);
-        return true;
+        throw stepErr(Error("combined csum changed but files didn't"), "bldArtifactIsUpToDate");
       }
     } catch (e) {} // exception means no qualified build artifact
     return false;
-  });
+  };
 
-  private bldArtifactAttrsCreate = cachify(
-    async (): Promise<PkgArtifactAttrs> => {
+  private bldArtifactAttrsCreate = cachify(async (): Promise<PkgArtifactAttrs> => {
+    try {
       this.l4(`->bldArtifactAttrsCreate`);
 
       //
@@ -732,133 +709,131 @@ class PkgWithBuild extends PkgWTree {
 
       let srcCsums: ReturnTypeP<typeof fs.md5>;
 
-      const srcDirIsPresent = await fs
-        .stat(`${this.pathAbs}/src`)
-        .catch(() => {});
+      const srcDirIsPresent = await fs.stat(`${this.pathAbs}/src`).catch(() => {});
 
       // 1. If there is a src dir, we md5 the src dir, package.json and yarn.lock
       if (srcDirIsPresent) {
-        const includePaths = ["src", "package.json", "yarn.lock"].map(
-          (p) => `${this.pathAbs}/${p}`
-        ) as [string];
-        srcCsums = await fs.md5(includePaths);
+        this.l4(`:srcDirIsPresent`);
+        const includePaths = ["src", "package.json", "yarn.lock"].map((p) => `${this.pathAbs}/${p}`) as [string];
+        srcCsums = await fs.md5(includePaths).catch((e) => {
+          throw stepErr(e, "srcDirIsPresent");
+        });
       }
       // 2. Else, we md5 the entire package dir with exclusions
       else {
-        const excludesRegExps = [
-          /^\.[a-zA-Z]/, // paths starting with a dot ie (.b)ar
-          /\/\./, // paths with a dot path in the middle ie /foo(/.)bar
-        ];
+        this.l4(`:srcDirIsNotPresent`);
+        try {
+          const excludesRegExps = [
+            /^\.[a-zA-Z]/, // paths starting with a dot ie (.b)ar
+            /\/\./, // paths with a dot path in the middle ie /foo(/.)bar
+          ];
 
-        const excludeStrsIfAnywhereInPath = [
-          "dist",
-          "build",
-          "jest",
-          "lint",
-          "node_modules",
-          "public",
-          "stories",
-          "story",
-          "styleguide",
-        ];
+          const excludeStrsIfAnywhereInPath = [
+            "dist",
+            "build",
+            "jest",
+            "lint",
+            "node_modules",
+            "public",
+            "stories",
+            "story",
+            "styleguide",
+          ];
 
-        const excludeStrsIfEndsWith: string[] = [
-          "cortex.yaml",
-          "package.tgz",
-          "package-lock.json",
-          "pnpm-lock.yaml",
-          "README.md",
-          "tsconfig.json",
-        ];
+          const excludeStrsIfEndsWith: string[] = [
+            "cortex.yaml",
+            "package.tgz",
+            "package-lock.json",
+            "pnpm-lock.yaml",
+            "README.md",
+            "tsconfig.json",
+          ];
 
-        excludeStrsIfEndsWith.push(...(this.json.files ?? []));
+          excludeStrsIfEndsWith.push(...(this.json.files ?? []));
 
-        // Exclude dirs that are marked as exports in package.json.exports
-        // Example:
-        // "exports": {
-        //   "./complex/*": {
-        //     "import": {
-        //       "types": "./types/src/complex/*.d.ts",
-        //       "default": "./es/complex/*.mjs"
-        //     }
-        //   }
-        // }
-        const pkgExportPaths = this.json.exports
-          ? O.valsRecursive(this.json.exports)
-          : [];
-        const pkgExportDirs = pkgExportPaths.map((p) => {
-          let dir = p;
-          dir = dir.replace(/^\.?\//, ""); // kill ^./ || ^/
-          dir = dir.split("/")[0]; // kill everything after the first dir
-          dir = this.pathRel + "/" + dir;
-          return dir;
-        });
-        excludeStrsIfAnywhereInPath.push(...pkgExportDirs);
+          // Exclude dirs that are marked as exports in package.json.exports
+          // Example:
+          // "exports": {
+          //   "./complex/*": {
+          //     "import": {
+          //       "types": "./types/src/complex/*.d.ts",
+          //       "default": "./es/complex/*.mjs"
+          //     }
+          //   }
+          // }
+          const pkgExportPaths = this.json.exports ? O.valsRecursive(this.json.exports) : [];
+          const pkgExportDirs = pkgExportPaths.map((p) => {
+            let dir = p;
+            dir = dir.replace(/^\.?\//, ""); // kill ^./ || ^/
+            dir = dir.split("/")[0]; // kill everything after the first dir
+            dir = this.pathRel + "/" + dir;
+            return dir;
+          });
+          excludeStrsIfAnywhereInPath.push(...pkgExportDirs);
 
-        excludesRegExps.push(
-          RegExp("(" + A.toDedup(excludeStrsIfEndsWith).join("|") + ")$")
-        );
-        excludesRegExps.push(
-          RegExp("(" + A.toDedup(excludeStrsIfAnywhereInPath).join("|") + ")")
-        );
+          excludesRegExps.push(RegExp("(" + A.toDedup(excludeStrsIfEndsWith).join("|") + ")$"));
+          excludesRegExps.push(RegExp("(" + A.toDedup(excludeStrsIfAnywhereInPath).join("|") + ")"));
 
-        srcCsums = await fs.md5(this.pathAbs, {
-          excludes: excludesRegExps,
-        });
+          srcCsums = await fs.md5(this.pathAbs, {
+            excludes: excludesRegExps,
+          });
+        } catch (e) {
+          throw stepErr(e, "srcDirIsNotPresent");
+        }
       }
 
       // make the paths relative to the package root
-      srcCsums = O.ents(srcCsums).reduce((acc, [k, v]) => {
-        acc[k.replace(this.pathAbs + "/", "")] = v;
-        return acc;
-      }, {} as typeof srcCsums);
+      srcCsums = O.ents(srcCsums).reduce(
+        (acc, [k, v]) => {
+          acc[k.replace(this.pathAbs + "/", "")] = v;
+          return acc;
+        },
+        {} as typeof srcCsums,
+      );
 
       const depCsums: Dict = O.fromEnts<string>(
         await P.all(
-          O.vals(this.dependencyCls).map(
-            async (cl): Promise<[string, string]> => {
-              const clAttrs = await cl.bldArtifactAttrsGet();
-              return [cl.pathRel, clAttrs.combined];
-            }
-          )
-        )
+          O.vals(this.dependencyCls).map(async (cl): Promise<[string, string]> => {
+            const clAttrs = await cl.bldArtifactFile.gattrsP();
+            return [cl.name, clAttrs.combined];
+          }),
+        ),
       );
 
       const srcAndDepCsums = O.sort({ ...srcCsums, ...depCsums });
 
+      const combinedMd5 = md5(O.vals(srcAndDepCsums), { errStep: "combine" });
+
       const attrs: PkgArtifactAttrs = {
-        pkg: this.pathRel,
-        combined: md5(O.vals(srcAndDepCsums)),
-        ...srcAndDepCsums,
+        pkg: this.name,
+        combined: combinedMd5,
+        deps: depCsums,
+        files: srcCsums,
       };
       this.bldArtifactAttrsCreateLast = attrs;
 
       // save the attrs to a tmp file so we can retrieve it in pkgJsonPostbuild
-      const tmpFolder = await this.tmpFolderGet();
-      await fs.set(
-        `${tmpFolder}/bldArtifactAttrsCreateLast.json`,
-        JSON.stringify(attrs),
-        { skipBackup: true }
-      );
+      // TODO: reconsider if this is necessary
+      await fs.get(`${this.tmpFolder}/bldArtifactAttrsCreateLast.json`).set({ json: attrs });
 
       return attrs;
+    } catch (e) {
+      throw stepErr(e, "bldArtifactAttrsCreate");
     }
-  );
+  });
   private bldArtifactAttrsCreateLast: PkgArtifactAttrs | null = null;
 
-  private bldArtifactAttrsGet = async (): Promise<PkgArtifactAttrs> => {
-    try {
-      const attrs = await fs.getXattrs(this.bldArtifactPath);
-      return attrs as anyOk;
-    } catch (e) {
-      throw stepErr(e, "bldArtifactAttrsGet");
-    }
+  private bldArtifactAttrsUpdate = async () => {
+    const bldAttrsExpected = await this.bldArtifactAttrsCreate();
+    await this.bldArtifactFile.set({ gattrs: bldAttrsExpected });
   };
 
-  private bldArtifactAttrsSet = async () => {
-    const bldAttrsExpected = await this.bldArtifactAttrsCreate();
-    await fs.setXattrs(this.bldArtifactPath, bldAttrsExpected);
-  };
+  /** Gets the class instance of the artifact file */
+  get bldArtifactFile() {
+    return (this._bldArtifactFile = this._bldArtifactFile ?? fs.get<never, PkgArtifactAttrs>(this.bldArtifactPath));
+  }
+  /** Don't use this directly */
+  private _bldArtifactFile?: ReturnTypeP<typeof fs.get<never, PkgArtifactAttrs>>;
 
   /**
    * adds this pkg's build artifact (package.tgz) to the caches (just local atm)
@@ -868,26 +843,24 @@ class PkgWithBuild extends PkgWTree {
    */
   private bldArtifactCacheAdd = async () => {
     try {
-      const attrs = await this.bldArtifactAttrsGet();
+      this.l4(`:bldArtifactCacheAdd->start`);
+      const attrs = await this.bldArtifactFile.gattrsP();
       const cacheKey = this.bldArtifactCacheKey(attrs);
-      this.l1(`:cacheAdd->${cacheKey}`);
+      this.l1(`:bldArtifactCacheAdd->${cacheKey}`);
 
       // stat before get to check if copy/download be skipped, bc we can skip if
       // the cache already has the package.tgz
-      let stat = await pkgLocalCache
-        .stat(cacheKey, { attrs: true })
-        .catch(() => {});
+      let stat = await pkgLocalCache.stat(cacheKey).catch(() => {});
       if (stat) {
-        this.l1(`:cacheAdd->skip bc cache already has it`);
+        this.l1(`:bldArtifactCacheAdd->skip bc cache already has it`);
       } else {
-        const bin = await fs.getBin(this.bldArtifactPath);
-        stat = await pkgLocalCache.add(cacheKey, bin.buffer, { attrs });
+        stat = await pkgLocalCache.add(cacheKey, await this.bldArtifactFile.bufferP(), { attrs });
       }
 
-      this.l4(`:cacheAdd->end`);
+      this.l4(`:bldArtifactCacheAdd->end`);
       return stat;
     } catch (e) {
-      throw stepErr(e, "addToCache");
+      throw stepErr(e, "bldArtifactCacheAdd");
     }
   };
 
@@ -902,14 +875,12 @@ class PkgWithBuild extends PkgWTree {
       const cacheKey = this.bldArtifactCacheKey(bldAttrsExpected);
       this.l2(`:cacheGet->${cacheKey}`);
       const cached = await pkgLocalCache.get(cacheKey);
-      await fs.setBin(this.bldArtifactPath, cached.buffer, {
-        xattrs: cached.attrs,
-      });
-
       this.l3(`:cacheGet->hit`);
 
-      // we can pump the cache for this.bldArtifactIsUpToDate since hit
-      await this.bldArtifactIsUpToDate({ setCache: true });
+      await this.bldArtifactFile.set({
+        buffer: cached.buffer,
+        gattrs: cached.attrs,
+      });
 
       // end cacheGet main
     } catch (e) {
@@ -919,9 +890,7 @@ class PkgWithBuild extends PkgWTree {
 
   /** Note if you change this, you also need to change bldArtifactCachePurge filter */
   private bldArtifactCacheKey = (attrs: PkgArtifactAttrs) => {
-    const cacheKey = strFileEscape(
-      `${this.name.slice(1)}-${attrs.combined}.tgz`
-    );
+    const cacheKey = strFileEscape(`${this.name.slice(1)}-${attrs.combined}.tgz`);
     return cacheKey;
   };
 
@@ -931,26 +900,25 @@ class PkgWithBuild extends PkgWTree {
    */
   private lockfileClean = async () => {
     // FIXME: using fs would be faster than sh.exec
-    await sh.exec(
-      '[ -f yarn.lock ] && sed -i "" -n "/@..\\//,/^$/!p" yarn.lock',
-      { wd: this.pathAbs }
-    );
+    await sh.exec('[ -f yarn.lock ] && sed -i "" -n "/@..\\//,/^$/!p" yarn.lock', { wd: this.pathAbs });
   };
 
   private pkgJsonPostinstall = async () => {
     this.l4(`->reset`);
     try {
-      const tmpFolder = await this.tmpFolderGet();
       await P.all([
         this.lockfileClean(),
+
+        // restore the dependencies in package.json
         fs
-          .getPkgJsonFile(`${tmpFolder}/pkgJsonPreinstall.package.json`)
-          .then((pj) => {
-            if (pj.json.dependencies)
-              this.json.dependencies = pj.json.dependencies;
-            if (pj.json.devDependencies)
-              this.json.devDependencies = pj.json.devDependencies;
-            return this.jsonF.save();
+          .getPkgJsonFile(`${this.pathAbs}/package.json`)
+          .snapshotGet("pkgJsonPreinstall")
+          .then((snap) => {
+            const sj = snap.json as PkgJsonFields;
+            const jNext = { ...this.json };
+            if (sj.dependencies) jNext.dependencies = sj.dependencies;
+            if (sj.devDependencies) jNext.devDependencies = sj.devDependencies;
+            return this.jsonF.set({ json: jNext });
           }),
         // this.pkgJsonGenerate(), // TODO: decide whether to re-enable
       ]);
@@ -977,53 +945,40 @@ class PkgWithBuild extends PkgWTree {
       const _p: Promise<anyOk>[] = [];
 
       // create backup of package.json to be restored in pkgJsonPostinstall
-      const tmpFolder = await this.tmpFolderGet();
-      _p.push(
-        fs.cp(
-          `${this.pathAbs}/package.json`,
-          `${tmpFolder}/pkgJsonPreinstall.package.json`,
-          { skipBackup: true }
-        )
-      );
+      _p.push(fs.get(`${this.pathAbs}/package.json`).snapshot("pkgJsonPreinstall"));
 
       // 1. remove cls from yarn.lock so yarn fresh installs
       _p.push(this.lockfileClean());
 
       // 2. upsert cls (incl nested) as ../[pkg]/package.tgz to package.json
-      const pjs = this.json;
+      const pJson = this.json;
 
       // assert that the package.json isn't currupt
       for (const [k, v] of O.ents({
-        ...pjs.dependencies,
-        ...pjs.devDependencies,
+        ...pJson.dependencies,
+        ...pJson.devDependencies,
       })) {
         if (v.startsWith("../"))
-          throw stepErr(
-            Error(
-              `package.json has relative dep and is likely currupt: ${k} -> ${v}`
-            ),
-            "preinstall"
-          );
+          throw stepErr(Error(`package.json has relative dep and is likely currupt: ${k} -> ${v}`), "preinstall");
       }
 
       // swap out the workspace:* (aka cls) with relative paths and add nested
+      const pJsonN = { ...pJson };
       this.dependencyClsForInstall.forEach((cl) => {
         const name = cl.json.name;
-        if (pjs.dependencies?.[name]) {
-          pjs.dependencies[name] = `../${cl.basename}/package.tgz`;
+        if (pJsonN.dependencies?.[name]) {
+          pJsonN.dependencies[name] = `../${cl.basename}/package.tgz`;
         } else {
-          if (!pjs.devDependencies) pjs.devDependencies = {};
-          pjs.devDependencies[name] = `../${cl.basename}/package.tgz`;
+          if (!pJsonN.devDependencies) pJsonN.devDependencies = {};
+          pJsonN.devDependencies[name] = `../${cl.basename}/package.tgz`;
         }
       });
       // scrub out workspace:* (aka cls) from peerDependencies
-      if (pjs.peerDependencies)
-        pjs.peerDependencies = O.fromEnts(
-          O.ents(pjs.peerDependencies).filter(([, v]) => v !== "workspace:*")
-        );
+      if (pJsonN.peerDependencies)
+        pJsonN.peerDependencies = O.fromEnts(O.ents(pJsonN.peerDependencies).filter(([, v]) => v !== "workspace:*"));
 
       // commit to filesystem
-      _p.push(this.jsonF.save());
+      _p.push(this.jsonF.set({ json: pJsonN }));
 
       await P.all(_p);
 
@@ -1042,15 +997,11 @@ class PkgWithBuild extends PkgWTree {
       const i = setInterval(() => {
         this.l1(`:pkgJsonInstall->working ${Time.diff(start)}`);
       }, 20000);
-      await sh.exec(
-        `yarn install --mutex file:${Yarn.mutex}` +
-          (UTIL_ENV.logLevel >= 5 ? " --verbose" : ""),
-        {
-          prefix: this.log.prefix,
-          verbose: UTIL_ENV.logLevel > 1,
-          wd: this.pathAbs,
-        }
-      );
+      await sh.exec(`yarn install --mutex file:${Yarn.mutex}` + (UTIL_ENV.logLevel >= 5 ? " --verbose" : ""), {
+        prefix: this.log.prefix,
+        verbose: UTIL_ENV.logLevel > 1,
+        wd: this.pathAbs,
+      });
       clearInterval(i);
 
       await this.jsonF.enableHooks();
@@ -1087,23 +1038,19 @@ class PkgWithBuild extends PkgWTree {
       const srcDir = `${this.pathAbs}/src`;
       const srcDirBak = `${srcDir}.bak`;
       try {
-        await fs.mv(srcDir, srcDirBak, { skipBackup: true });
+        await fs.mv(srcDir, srcDirBak);
         await fs.mkdir(srcDir);
         srcMoved = true;
       } catch (e) {}
 
-      await P.all([
-        this.bldArtifactAttrsCreate(), // call this to capture before build attrs
-        fs.rm(`${this.pathAbs}/package.tgz`).catch(() => {}),
-        fs.rm(`${this.pathAbs}/dist`).catch(() => {}),
-        fs.rm(`${this.pathAbs}/build`).catch(() => {}),
-        sh.exec(`yarn clean`, { wd: this.pathAbs }),
-      ]);
+      await P.all([this.cleanBld(), sh.exec(`yarn clean`, { wd: this.pathAbs })]);
 
       if (srcMoved) {
-        await fs.rm(srcDir, { skipBackup: true });
-        await fs.mv(srcDirBak, srcDir, { skipBackup: true });
+        await fs.rm(srcDir);
+        await fs.mv(srcDirBak, srcDir);
       }
+
+      await this.bldArtifactAttrsCreate({ bustCache: true }); // call this to capture before build attrs
 
       this.l4(`:pkgJsonPrebuild->end`);
     } catch (e) {
@@ -1113,7 +1060,7 @@ class PkgWithBuild extends PkgWTree {
 
   private pkgJsonBuild = throttle(async () => {
     try {
-      let start = new Date();
+      const start = new Date();
       this.l1(`->pkgJsonBuild`);
       await this.jsonF.disableHooks();
 
@@ -1145,42 +1092,41 @@ class PkgWithBuild extends PkgWTree {
       // 1. assert src csum has not changed from before build
       //
       //
-      const attrsBefore = O.omit(
+      const attrsBefore =
         this.bldArtifactAttrsCreateLast ||
-          ((await fs
-            .getJsonFile(
-              `${await this.tmpFolderGet}/bldArtifactAttrsCreateLast.json`
-            )
-            .catch((e) => {
-              throw stepErr(e, "csumChangedCheck.getBefore");
-            })) as unknown as PkgArtifactAttrs),
-        ["combined", "pkg"]
-      );
-      const attrsAfter = O.omit(
-        await this.bldArtifactAttrsCreate({
-          bustCache: true,
-        }),
-        ["combined", "pkg"]
-      );
+        ((await fs
+          .get(`${this.tmpFolder}/bldArtifactAttrsCreateLast.json`)
+          .jsonP()
+          .catch((e) => {
+            throw stepErr(e, "csumChangedCheck.getBefore");
+          })) as unknown as PkgArtifactAttrs);
+
+      const attrsAfter = await this.bldArtifactAttrsCreate({
+        bustCache: true,
+      });
+
+      // TODO: Uncomment this when i fix the compare function
+      // if (attrsBefore.combined !== attrsAfter.combined) {
+
+      const cmpAttrsBefore = O.fromEnts([...O.ents(attrsBefore.deps), ...O.ents(attrsBefore.files)]);
+      const cmpAttrsAfter = O.fromEnts([...O.ents(attrsAfter.deps), ...O.ents(attrsAfter.files)]);
 
       const ignores = (await this.bldrConfigGet()).postBuildSourceCheckIgnores;
       for (const i of ignores) {
-        O.ents(attrsBefore)
+        O.ents(cmpAttrsBefore)
           .filter(([k, v]) => (Is.regex(i) ? k.match(i) : k.includes(i)))
-          .forEach(([k, v]) => delete attrsBefore[k]);
-        O.ents(attrsAfter)
+          .forEach(([k, v]) => delete cmpAttrsBefore[k]);
+        O.ents(cmpAttrsAfter)
           .filter(([k, v]) => (Is.regex(i) ? k.match(i) : k.includes(i)))
-          .forEach(([k, v]) => delete attrsAfter[k]);
+          .forEach(([k, v]) => delete cmpAttrsAfter[k]);
       }
 
-      const cmp = O.compare(attrsBefore, attrsAfter);
+      const cmp = O.compare(cmpAttrsBefore, cmpAttrsAfter);
       if (!cmp.equals) {
         throw stepErr(
-          Error(
-            "attrs changed after build. This means that bldr is csuming build artifacts (bad!)"
-          ),
+          Error("attrs changed after build. This means that bldr is csuming build artifacts (bad!)"),
           "csumChangedCheck",
-          { cmp }
+          { cmp },
         );
       }
 
@@ -1192,27 +1138,29 @@ class PkgWithBuild extends PkgWTree {
       this.l1(`:pkgJsonPostBuild->pack`);
 
       /** Remove all crosslinks from package.json */
-      const pjs = this.json;
-      const rm = (deps: Record<string, string> = {}) =>
+      /** package.json before */
+      const pJsonN = O.cp(this.json);
+      /** package.json after */
+      const pJsonB = O.cp(this.json);
+      /** deletes any key in a dict crosslink values */
+      const rmCls = (deps: Record<string, string> = {}) =>
         Object.entries(deps)
           .filter(([, v]) => v.startsWith("../") || v === "workspace:*")
           .forEach(([d]) => delete deps[d]);
-      rm(pjs.dependencies);
-      rm(pjs.devDependencies);
-      rm(pjs.peerDependencies);
+      rmCls(pJsonN.dependencies);
+      rmCls(pJsonN.devDependencies);
+      rmCls(pJsonN.peerDependencies);
       // Disable hooks too, bc yarn will stupidly run them despite being a dependency.
-      delete pjs.scripts;
-      await this.jsonF.save();
+      delete pJsonN.scripts;
+      await this.jsonF.set({ json: pJsonN });
 
-      await sh
-        .exec(`yarn pack -f package.tgz`, { wd: this.pathAbs })
-        .catch(stepErrCb("pkgJsonPack"));
+      await sh.exec(`yarn pack -f package.tgz`, { wd: this.pathAbs }).catch(stepErrCb("pkgJsonPack"));
 
-      await P.all([this.cleanYarnCache(), this.jsonF.reset()]);
-      await this.bldArtifactAttrsSet();
+      await P.all([this.cleanYarnCache(), this.jsonF.set({ json: pJsonB })]);
+      await this.bldArtifactAttrsUpdate();
       await this.bldArtifactCacheAdd();
 
-      this.l4(`:pkgJsonPostBuild->end`);
+      this.l4(`:pkgJsonPostBuild->end ${Time.diff(start)}`);
 
       // end pkgJsonPostbuild
     } catch (e: anyOk) {
@@ -1223,11 +1171,15 @@ class PkgWithBuild extends PkgWTree {
   /**
    * a tmp folder for this pkg to store cli metadata
    */
-  private tmpFolderGet = async () => {
+  private get tmpFolder() {
     const path = `${this.pathAbs}/node_modules/.cache/bldr`;
-    await fs.mkdir(path);
+    if (!this._tmpFolderCreated) {
+      fs.mkdirS(path);
+      this._tmpFolderCreated = true;
+    }
     return path;
-  };
+  }
+  private _tmpFolderCreated = false;
 }
 
 class PkgWSync extends PkgWithBuild {
@@ -1236,7 +1188,7 @@ class PkgWSync extends PkgWithBuild {
     opts: {
       verbose?: boolean;
       watch?: boolean;
-    } = {}
+    } = {},
   ) => {
     const { verbose = true, watch = false } = opts;
 
@@ -1289,13 +1241,13 @@ class PkgWSync extends PkgWithBuild {
                 `${nestedNodeModules}/${cl.json.name} ` +
                 `-av --delete ` +
                 excludes.map((e) => `--exclude=${e}`).join(" "),
-              { wd: this.pathWs, silent: !verbose }
+              { wd: this.pathWs, silent: !verbose },
             );
             await fs.rm(`${nestedNodeModules}/.cache`).catch(() => {});
             return res;
           }
           return "";
-        })
+        }),
       );
 
       const trimmed = delta
