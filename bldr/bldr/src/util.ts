@@ -191,7 +191,7 @@ export const O = {
   /** An alias for Object.assign */
   ass: <T extends anyOk[]>(...args: T): Combine<T> => Object.assign(...(args as unknown as [anyOk])),
   /** A super basic compare check */
-  compare: <O1 extends Record<anyOk, anyOk>, O2 extends Record<anyOk, anyOk>>(o1: O1, o2: O2) => {
+  cmp: <O1 extends Record<anyOk, anyOk>, O2 extends Record<anyOk, anyOk>>(o1: O1, o2: O2) => {
     const added: (keyof O2)[] = [];
     const changed: (keyof O1)[] = [];
     const removed: (keyof O1)[] = [];
@@ -214,15 +214,23 @@ export const O = {
     };
   },
   cp: <T>(o: T): ReadonlyNot<T> => structuredClone(o),
+  /** Deeply check if objs are equal */
+  eq: equals,
   /** An alias for Object.entries */
   ents: ((...args: [anyOk]) => Object.entries(...args)) as ObjectConstructor["entries"],
   /** An alias for Object.fromEntries */
   fromEnts: ((...args: [anyOk]) => Object.fromEntries(...args)) as ObjectConstructor["fromEntries"],
   /** An alias for Object.keys with better types */
   keys: <T extends HashM<anyOk>>(obj: T): (keyof T)[] => Object.keys(obj) as anyOk,
+  /** Deeply merge objects */
   merge,
+  /** Shallow merge objects */
+  mergeShallow: <T1, T2>(o1: T1, o2: T2): T1 & T2 => {
+    const res = O.ass({}, o1, o2);
+    return res;
+  },
   /** Create a copy that excludes the keys specified */
-  omit: <T extends HashM<anyOk>, K extends keyof T>(obj: T, omitKeys: K[]): Omit<T, K> => {
+  omit: <T extends HashM<anyOk>, K extends keyof T>(obj: T, omitKeys: K[]): ReadonlyNot<Omit<T, K>> => {
     const res = O.ass({}, obj);
     omitKeys?.forEach((omk) => {
       if (omk in obj) delete res[omk];
@@ -230,7 +238,7 @@ export const O = {
     return res;
   },
   /** Create a copy that includes only the keys specified */
-  pick: <T extends HashM<anyOk>, K extends keyof T>(obj: T, keyOrKeys: K | K[]): Pick<T, K> => {
+  pick: <T extends HashM<anyOk>, K extends keyof T>(obj: T, keyOrKeys: K | K[]): ReadonlyNot<Pick<T, K>> => {
     const keys = Is.arr(keyOrKeys) ? keyOrKeys : [keyOrKeys];
     const res = { ...obj };
     O.keys(obj).forEach((ok) => {
@@ -644,27 +652,18 @@ class File<
     return pathN.basename(this.path);
   }
 
-  // Call this if the buffer, or file was moved
-  cacheReset = () => {
-    delete this.bufferLast;
-    delete this.jsonLast;
-    delete this.md5Last;
-    delete this.gattrsLast;
-  };
-
   /** Gets a buffer from cache or reads synchronously */
   get buffer(): Buffer {
     try {
-      if (!this.bufferLast) {
-        this.cacheReset();
+      if (!this._bufferVal) {
         try {
-          this.bufferLast = fsN.readFileSync(this.path);
+          this._bufferVal = fsN.readFileSync(this.path);
         } catch (e) {
-          this.bufferLast = Buffer.from("", "utf-8");
+          this._bufferVal = Buffer.from("", "utf-8");
           this.bufferDirty = true;
         }
       }
-      return this.bufferLast;
+      return this._bufferVal;
     } catch (e: anyOk) {
       throw stepErr(e, `F:buffer`, { bufferPath: this.path });
     }
@@ -672,38 +671,39 @@ class File<
   /** Gets buffer from cache or reads with a promise  */
   bufferP = async () => {
     try {
-      if (!this.bufferLast) {
+      if (!this._bufferVal) {
         if (this.exists) {
-          this.bufferLast = await fsN.promises.readFile(this.path);
+          this._bufferVal = await fsN.promises.readFile(this.path);
         } else {
-          this.bufferLast = Buffer.from("", "utf-8");
+          this._bufferVal = Buffer.from("", "utf-8");
           this.bufferDirty = true;
         }
       }
-      return this.bufferLast;
+      return this._bufferVal;
     } catch (e: anyOk) {
       throw stepErr(e, `F:bufferP`, { bufferPath: this.path });
     }
   };
   set buffer(buffer: Buffer | string) {
-    this.cacheReset();
-    this.bufferLast = Is.buffer(buffer) ? buffer : Buffer.from(buffer);
+    delete this._jsonVal;
+    delete this._md5Val;
+    this._bufferVal = Is.buffer(buffer) ? buffer : Buffer.from(buffer);
     this.bufferDirty = true;
   }
-  /** Set var, -- but returns this -- for chaining */
+  /** A setter that returns this, for chaining */
   bufferSet(buffer: Buffer | string) {
     this.buffer = buffer;
     return this;
   }
   private bufferDirty = false;
-  private bufferLast?: Buffer;
+  private _bufferVal?: Buffer;
 
   del = async (skipgGattrsDel?: boolean) => {
     await fs.rm(this.path, { force: true });
     if (!skipgGattrsDel) await this.gattrsF.del(true);
-    this.cacheReset();
-    delete this.existsLast;
-    delete this.statLast;
+    this.buffer = Buffer.from("", "utf-8");
+    delete this._existsVal;
+    delete this._statVal;
   };
 
   get dirname() {
@@ -711,16 +711,16 @@ class File<
   }
 
   get exists() {
-    if (this.existsLast === undefined) {
-      this.existsLast = fsN.existsSync(this.path);
+    if (this._existsVal === undefined) {
+      this._existsVal = fsN.existsSync(this.path);
     }
-    return this.existsLast;
+    return this._existsVal;
   }
   existsP = async () => {
-    if (this.existsLast === undefined) {
-      this.existsLast = await fsN.promises.exists(this.path);
+    if (this._existsVal === undefined) {
+      this._existsVal = await fsN.promises.exists(this.path);
     }
-    return this.existsLast;
+    return this._existsVal;
   };
   private existsAssert = () => {
     if (!this.exists) {
@@ -733,7 +733,7 @@ class File<
     await this.existsP();
     this.existsAssert();
   };
-  private existsLast?: boolean;
+  private _existsVal?: boolean;
 
   /**
    * Ghost attributes are a way to store metadata about a file in a hidden ghost file
@@ -744,33 +744,50 @@ class File<
    * will not be findable automatically.
    *
    * This is kinda like a low-tech LevelDB for files.
+   *
+   * There are hidden attributes like file snapshots, which are filtered from the get/sets.
    */
-  get gattrs(): Readonly<GATTRS> {
-    if (this.gattrsLast) return this.gattrsLast;
-    if (!this.exists) {
-      this.gattrsF.del().catch(() => {});
-      throw stepErr(Error(`Trying to get gattrs on file which d.n.e.`), "F:gattrs", {
+  get gattrs(): GATTRS {
+    try {
+      l5(`F:gattrs->${this.path}`);
+      const attrsNoHidden = O.omit(this.gattrsAll, ["hidden"]) as GATTRS;
+      this._gattrsVal = attrsNoHidden;
+      if (!this._gattrsOrig) this._gattrsOrig = attrsNoHidden;
+      return attrsNoHidden;
+    } catch (e: anyOk) {
+      throw stepErr(e, "F:gattrs", {
         filePath: this.path,
+        gattrsPath: this._gattrsPath,
       });
     }
-    const attrs = this.gattrsF.json;
-    const attrsNoHidden = O.omit(attrs, ["hidden"]) as Readonly<GATTRS>;
-    this.gattrsLast = attrsNoHidden;
-    return attrsNoHidden;
   }
-  gattrsP = async (): Promise<Readonly<GATTRS>> => {
+  gattrsP = async (): Promise<GATTRS> => {
+    await this.gattrsAllP();
+    return this.gattrs;
+  };
+  get gattrsAll(): GATTRS & FileGattrsHidden {
     try {
-      if (this.gattrsLast) return this.gattrsLast;
-      l4(`F:gattrsP->${this.path}`);
-      const exists = await this.existsP();
-      if (!exists) {
+      l4(`F:gattrsAll->${this.path}`);
+      if (!this.exists) {
         this.gattrsF.del().catch(() => {});
-        throw Error(`Trying to get gattrs on file which d.n.e.`);
+        throw stepErr(Error(`Trying to get gattrs on file which d.n.e.`), "F:gattrs", {
+          filePath: this.path,
+        });
       }
-      const attrs = await this.gattrsF.jsonP();
-      const attrsNoHidden = O.omit(attrs, ["hidden"]) as Readonly<GATTRS>;
-      this.gattrsLast = attrsNoHidden;
-      return attrsNoHidden;
+      return this.gattrsF.json;
+    } catch (e: anyOk) {
+      throw stepErr(e, "F:gattrsAll", {
+        filePath: this.path,
+        gattrsPath: this._gattrsPath,
+      });
+    }
+  }
+  gattrsAllP = async (): Promise<GATTRS> => {
+    try {
+      l4(`F:gattrsAllP->${this.path}`);
+      await this.existsP();
+      await this.gattrsF.jsonP().catch(() => {});
+      return this.gattrsAll;
     } catch (e: anyOk) {
       throw stepErr(e, "F:gattrsP", {
         filePath: this.path,
@@ -778,97 +795,97 @@ class File<
       });
     }
   };
-  get gattrsF() {
-    if (!this.gattrsFLast) {
-      this.gattrsFLast = new File<GATTRS & FileGattrsHidden, anyOk>(this._gattrsPath);
-    }
-    return this.gattrsFLast;
+  set gattrs(to: GATTRS) {
+    this._gattrsVal = to;
+    if (!this._gattrsOrig) this._gattrsOrig = to;
   }
+  /** A setter that returns this*/
   gattrsSet = (to: GATTRS) => {
-    this.gattrsLast = to;
-    this.gattrsDirty = true;
+    this.gattrs = to;
     return this;
   };
-  /**
-   * sets gattrs but with a promise read to this.gattrsF.jsonP()
-   */
+  /** sets gattrs but with a promise read to this.gattrsF.jsonP() */
   gattrsSetP = async (to: GATTRS) => {
-    const toWithHidden = O.ass({}, await this.gattrsF.jsonP(), to);
-    this.gattrsF.jsonSet(toWithHidden);
-    return this;
-  };
-  /** merge an obj into gattrs */
-  gattrsSetM(obj: PartialR<GATTRS>) {
-    this.gattrsSet(O.merge(this.gattrs, obj) as anyOk);
-    return this;
-  }
-  /** merge an obj into gattrs with a promise read */
-  gattrsSetMP = async (obj: PartialR<GATTRS>) => {
     await this.gattrsP();
-    this.gattrsSetM(obj);
+    this.gattrs = to;
     return this;
   };
-  private gattrsFLast?: File<GATTRS & FileGattrsHidden, anyOk>;
-  private gattrsLast?: GATTRS;
-  private gattrsDirty = false;
+  set gattrsAll(to: GATTRS & FileGattrsHidden) {
+    this.gattrsF.json = to;
+  }
+  /** A setter that returns this */
+  gattrsAllSet = (to: GATTRS & FileGattrsHidden) => {
+    this.gattrsAll = to;
+    return this;
+  };
+  get gattrsDirty() {
+    return this._gattrsOrig !== undefined && !O.eq(this._gattrsOrig, this._gattrsVal);
+  }
+  static gattrsPurge = async (opts: SMM = {}) => {
+    await fs.purgeDir(File._gattrsDir, opts);
+  };
+  get gattrsF() {
+    if (this._gattrsFVal) return this._gattrsFVal;
+    this._gattrsFVal = new File<GATTRS & FileGattrsHidden, anyOk>(this._gattrsPath);
+    return this._gattrsFVal;
+  }
+  private _gattrsFVal?: File<GATTRS & FileGattrsHidden, anyOk>;
+  private _gattrsOrig?: GATTRS;
+  private _gattrsVal?: GATTRS;
   static get _gattrsDir() {
     return `${fs.home}/.bldr/gattrs`;
   }
   private get _gattrsPath() {
     return File._gattrsDir + "/" + strFileEscape(this.path.replace(fs.home, "").slice(1), ".") + ".json";
   }
-  static gattrsPurge = async (opts: SMM = {}) => {
-    await fs.purgeDir(File._gattrsDir, opts);
-  };
 
   /** gets json from cache or reads it synchronously */
-  get json(): Readonly<JSON> {
-    if (this.jsonLast) return this.jsonLast;
+  get json(): JSON {
+    if (this._jsonVal) return this._jsonVal;
     try {
-      this.jsonLast = this.text ? JSON.parse(this.text) : {};
+      this._jsonVal = this.text ? JSON.parse(this.text) : {};
+      if (!this._jsonOrig) this._jsonOrig = this._jsonVal;
     } catch (e: anyOk) {
       throw stepErr(e, "F:json", { jsonPath: this.path });
     }
-    return this.jsonLast!;
+    return this._jsonVal!;
   }
   jsonP = async () => {
     await this.textP();
     return this.json;
   };
-  /**
-   * sets the value of the json obj to be stored on the file.
-   * - note: we intentionally do NOT have a set() bc File won't detect
-   *   changes to the inner json obj, and it's too easy to make that
-   *   mistake. I tried a proxy, but it got to complicated.
-   */
-  jsonSet(to: JSON) {
+  /** sets the value of the json obj to be stored on the file */
+  set json(to: JSON) {
+    if (!this._jsonOrig) this._jsonOrig = this.json;
     // Format it like Prettier does
     this.text = str(to, 2).replace(/{}/g, "{\n  }") + "\n";
-    this.jsonLast = to;
+    this._jsonVal = to;
+  }
+  /** A setter that returns this */
+  jsonSet(to: JSON) {
+    this.json = to;
     return this;
   }
-  /** merge an obj into json */
-  jsonSetM(obj: PartialR<JSON>) {
-    this.jsonSet(O.merge(this.json, obj) as anyOk);
-    return this;
-  }
-  /** merge an obj into json with a promise read */
-  jsonSetMP = async (obj: PartialR<JSON>) => {
+  jsonSetP = async (to: JSON) => {
     await this.jsonP();
-    this.jsonSetM(obj);
+    this.jsonSet(to);
     return this;
   };
-  private jsonLast?: JSON;
+  get jsonDirty() {
+    return this._jsonOrig !== undefined && !O.eq(this._jsonOrig, this.json);
+  }
+  private _jsonVal?: JSON;
+  private _jsonOrig?: JSON;
 
   get md5() {
-    if (!this.md5Last) this.md5Last = md5(this.buffer);
-    return this.md5Last;
+    if (!this._md5Val) this._md5Val = md5(this.buffer);
+    return this._md5Val;
   }
   md5P = async () => {
     await this.bufferP();
     return this.md5;
   };
-  private md5Last?: string;
+  private _md5Val?: string;
 
   /** path: the path of the file. Using getter to block setting */
   get path(): string {
@@ -895,12 +912,12 @@ class File<
       await fsN.promises.mkdir(pathN.dirname(to), { recursive: true });
       await fsN.promises.rename(this.path, to);
 
-      if (this.gattrsFLast) {
-        await this.gattrsFLast.mv(`${this._gattrsPath}/${this.path}`);
+      if (this._gattrsFVal) {
+        await this._gattrsFVal.mv(`${this._gattrsPath}/${this.path}`);
       }
 
       this._path = to;
-      this.existsLast = true;
+      this._existsVal = true;
       return this;
     } catch (e: anyOk) {
       throw stepErr(e, "F:mv", { from, to });
@@ -911,36 +928,41 @@ class File<
   read = async () => {
     l4(`F:read->${this.path}`);
     await this.existsAssertP();
-    await this.gattrsP();
-    await this.statP();
-    await this.bufferP();
+    await P.all([this.bufferP(), this.gattrsP(), this.statP()]);
     return this;
   };
 
   save = async () => {
     try {
+      // force an update of this.buffer if json is dirty, bc changes to inner attrs may have been missed
+      // by the set function.
+      if (this.jsonDirty) {
+        this.json = { ...this.json };
+        this._jsonOrig = this.json;
+      }
+
       const exists = await this.existsP();
       if (exists) {
         if (this.bufferDirty) {
           l5(`F:save->${this.path}`);
           await fs.set(this.path, this.buffer);
           this.bufferDirty = false;
+          delete this._statVal;
         }
       } else {
         this.gattrsF.del().catch(() => {});
+        await this.bufferP();
         await fs.mkdir(pathN.dirname(this.path));
         await fs.set(this.path, this.buffer);
         this.bufferDirty = false;
+        this._existsVal = true;
+        delete this._statVal;
       }
 
-      this.existsLast = true;
-      delete this.statLast;
-
       if (this.gattrsDirty) {
-        const gattrsLast = await this.gattrsF.jsonP();
-        const gattrsOnlyHidden = O.pick(gattrsLast, ["hidden"]);
-        const gattrsNext = { ...this.gattrs, ...gattrsOnlyHidden };
-        await this.gattrsF.set({ json: gattrsNext });
+        await this.gattrsP();
+        const gattrsNext = { ...this.gattrs, hidden: this.gattrsAll?.hidden };
+        await this.gattrsAllSet(gattrsNext);
       }
       await this.saveXattrs();
 
@@ -1014,26 +1036,26 @@ class File<
     return this.set({ buffer: snap.buffer });
   };
 
-  private statLast?: fsN.Stats;
+  private _statVal?: fsN.Stats;
   get stat() {
-    if (this.statLast) return this.statLast;
+    if (this._statVal) return this._statVal;
     l4(`F:stat->${this.path}`);
     this.existsAssert();
-    this.statLast = fsN.statSync(this.path);
-    return this.statLast;
+    this._statVal = fsN.statSync(this.path);
+    return this._statVal;
   }
   statP = async () => {
-    if (this.statLast) return this.statLast;
+    if (this._statVal) return this._statVal;
     l4(`F:statP->${this.path}`);
     await this.existsAssertP();
-    this.statLast = await fsN.promises.stat(this.path);
-    return this.statLast;
+    this._statVal = await fsN.promises.stat(this.path);
+    return this._statVal;
   };
 
   get stream() {
     let stream: Readable;
-    if (this.bufferLast) {
-      stream = Readable.from(this.bufferLast);
+    if (this._bufferVal) {
+      stream = Readable.from(this._bufferVal);
     } else {
       stream = fsN.createReadStream(this.path);
     }
@@ -1053,7 +1075,7 @@ class File<
   set text(to: string) {
     this.buffer = to;
   }
-  /** Set var, -- but returns this -- for chaining */
+  /** A setter that returns this, for chaining */
   textSet(to: string) {
     this.text = to;
     return this;
@@ -1098,6 +1120,11 @@ class File<
     this._xattrs = xattrs;
     if (!this._xattrsOrig) this._xattrsOrig = this._xattrs;
   }
+  /** A setter that returns this, for chaining */
+  setXattrs = async (xattrs: Dict) => {
+    this.xattrs = xattrs;
+    return this;
+  };
   private _xattrs?: Dict;
   private _xattrsOrig?: Dict;
   private saveXattrs = async () => {
@@ -1125,6 +1152,7 @@ class File<
         return `xattr -w -- "${k}" "${v}" ${this.path}`;
       });
       await sh.exec(cmds.join("; "));
+      delete this._statVal;
     } catch (e) {
       throw stepErr(e, `f.setXattrs`, {
         setXattrsPath: this.path,

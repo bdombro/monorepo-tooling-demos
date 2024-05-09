@@ -26,15 +26,18 @@ import {
 } from "./util.js";
 
 export type PkgArtifactAttrs = {
+  pkg: string;
+  combined: string;
+  deps: Dict;
+  files: Dict;
+};
+
+export type PkgMeta = {
   stats: {
     buildTimes: number[];
     buildSizes: number[];
     bootstrapTimes: number[];
   };
-  pkg: string;
-  combined: string;
-  deps: Dict;
-  files: Dict;
 };
 
 export class Bldr {
@@ -763,7 +766,8 @@ class PkgWithBuild extends PkgWTree {
 
       // save the attrs to a tmp file so we can retrieve it in pkgJsonPostbuild
       // TODO: reconsider if this is necessary
-      await fs.get(`${this.tmpFolder}/bldArtifactAttrsCreateLast.json`).set({ json: attrs });
+      // await fs.get(`${this.tmpFolder}/bldArtifactAttrsCreateLast.json`).set({ json: attrs });
+      await this.pkgMetaFile.set({ jsonM: { bldArtifactAttrsCreateLast: attrs } });
 
       return attrs;
     } catch (e) {
@@ -776,13 +780,6 @@ class PkgWithBuild extends PkgWTree {
     const bldAttrsExpected = await this.bldArtifactAttrsCreate();
     await this.bldArtifactFile.set({ gattrs: bldAttrsExpected });
   };
-
-  /** Gets the class instance of the artifact file */
-  get bldArtifactFile() {
-    return (this._bldArtifactFile = this._bldArtifactFile ?? fs.get<never, PkgArtifactAttrs>(this.bldArtifactPath));
-  }
-  /** Don't use this directly */
-  private _bldArtifactFile?: ReturnTypeP<typeof fs.get<never, PkgArtifactAttrs>>;
 
   /**
    * adds this pkg's build artifact (package.tgz) to the caches (just local atm)
@@ -861,6 +858,13 @@ class PkgWithBuild extends PkgWTree {
     }
   };
 
+  /** Gets the class instance of the artifact file */
+  get bldArtifactFile() {
+    return (this._bldArtifactFile = this._bldArtifactFile ?? fs.get<never, PkgArtifactAttrs>(this.bldArtifactPath));
+  }
+  /** Don't use this directly */
+  private _bldArtifactFile?: ReturnTypeP<typeof fs.get<never, PkgArtifactAttrs>>;
+
   /** check if build artifact already in workspace is up to date **/
   public bldArtifactIsUpToDate = async (): Promise<boolean> => {
     try {
@@ -880,7 +884,7 @@ class PkgWithBuild extends PkgWTree {
 
       // if we get here, the bld artifact is not up to date
       // so we log the differences
-      const cmp = O.compare({ ...existing.deps, ...existing.files }, { ...expected.deps, ...expected.files });
+      const cmp = O.cmp({ ...existing.deps, ...existing.files }, { ...expected.deps, ...expected.files });
       if (!cmp.equals) {
         cmp.added.forEach((pathRel) => this.l1(`:added->${pathRel}`));
         cmp.changed.forEach((pathRel) => this.l1(`:changed->${pathRel}`));
@@ -891,6 +895,12 @@ class PkgWithBuild extends PkgWTree {
     } catch (e) {} // exception means no qualified build artifact
     return false;
   };
+
+  private get pkgMetaFile() {
+    if (!this._pkgMetaFile) this._pkgMetaFile = fs.get<PkgMeta, never>(`${this.tmpFolder}/meta.json`);
+    return this._pkgMetaFile;
+  }
+  private _pkgMetaFile!: ReturnTypeP<typeof fs.get<PkgMeta, never>>;
 
   /**
    * The npm/yarn/pnpm lockfiles should never include crosslinks so that yarn always fresh installs them
@@ -933,7 +943,7 @@ class PkgWithBuild extends PkgWTree {
 
       // swap out the workspace:* (aka cls) with relative paths and add nested
       /** jsonN = package.json next */
-      const jsonN = { ...this.json };
+      const jsonN = O.cp(this.json);
       this.dependencyClsForInstall.forEach((cl) => {
         const name = cl.json.name;
         if (jsonN.dependencies?.[name]) {
@@ -993,10 +1003,11 @@ class PkgWithBuild extends PkgWTree {
           .snapshotGet("pkgJsonPreinstall")
           .then((snap) => {
             const sj = snap.json as PkgJsonFields;
-            const jNext = { ...this.json };
-            if (sj.dependencies) jNext.dependencies = sj.dependencies;
-            if (sj.devDependencies) jNext.devDependencies = sj.devDependencies;
-            return this.jsonF.set({ json: jNext });
+            const jsonN = O.cp(this.json);
+            if (sj.dependencies) jsonN.dependencies = sj.dependencies;
+            if (sj.devDependencies) jsonN.devDependencies = sj.devDependencies;
+            if (sj.peerDependencies) jsonN.peerDependencies = sj.peerDependencies;
+            return this.jsonF.set({ json: jsonN });
           }),
         // this.pkgJsonGenerate(), // TODO: decide whether to re-enable
       ]);
@@ -1118,7 +1129,7 @@ class PkgWithBuild extends PkgWTree {
           .forEach(([k, v]) => delete cmpAttrsAfter[k]);
       }
 
-      const cmp = O.compare(cmpAttrsBefore, cmpAttrsAfter);
+      const cmp = O.cmp(cmpAttrsBefore, cmpAttrsAfter);
       if (!cmp.equals) {
         throw stepErr(
           Error("attrs changed after build. This means that bldr is csuming build artifacts (bad!)"),
@@ -1136,24 +1147,24 @@ class PkgWithBuild extends PkgWTree {
 
       /** Remove all crosslinks from package.json */
       /** package.json before */
-      const pJsonN = O.cp(this.json);
+      const jsonB = O.cp(this.json);
       /** package.json after */
-      const pJsonB = O.cp(this.json);
+      const jsonN = O.cp(this.json);
       /** deletes any key in a dict crosslink values */
       const rmCls = (deps: Record<string, string> = {}) =>
         Object.entries(deps)
           .filter(([, v]) => v.startsWith("../") || v === "workspace:*")
           .forEach(([d]) => delete deps[d]);
-      rmCls(pJsonN.dependencies);
-      rmCls(pJsonN.devDependencies);
-      rmCls(pJsonN.peerDependencies);
+      rmCls(jsonN.dependencies);
+      rmCls(jsonN.devDependencies);
+      rmCls(jsonN.peerDependencies);
       // Disable hooks too, bc yarn will stupidly run them despite being a dependency.
-      delete pJsonN.scripts;
-      await this.jsonF.set({ json: pJsonN });
+      delete jsonN.scripts;
+      await this.jsonF.set({ json: jsonN });
 
       await sh.exec(`yarn pack -f package.tgz`, { wd: this.pathAbs }).catch(stepErrCb("pkgJsonPack"));
 
-      await P.all([this.cleanYarnCache(), this.jsonF.set({ json: pJsonB })]);
+      await P.all([this.cleanYarnCache(), this.jsonF.set({ json: jsonB })]);
       await this.bldArtifactAttrsUpdate();
       await this.bldArtifactCacheAdd();
 
