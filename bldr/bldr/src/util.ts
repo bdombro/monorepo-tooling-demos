@@ -553,6 +553,16 @@ export class LocalCache<ATTRS extends HashM<anyOk>> extends AbstractCache<ATTRS>
     }
   };
 
+  find = async (opts: SMM = {}) => {
+    try {
+      l3("LCACHE:find");
+      const { excludes, includes } = opts;
+      return fs.find(this.cacheDir, { excludes, includes });
+    } catch (e: anyOk) {
+      throw stepErr(e, "LCACHE:find");
+    }
+  };
+
   get = async (key: string) => {
     try {
       l5(`LCACHE:get->${key}`);
@@ -768,7 +778,7 @@ class File<
       });
     }
   };
-  private get gattrsF() {
+  get gattrsF() {
     if (!this.gattrsFLast) {
       this.gattrsFLast = new File<GATTRS & FileGattrsHidden, anyOk>(this._gattrsPath);
     }
@@ -801,10 +811,15 @@ class File<
   private gattrsFLast?: File<GATTRS & FileGattrsHidden, anyOk>;
   private gattrsLast?: GATTRS;
   private gattrsDirty = false;
-  private _gattrsDir = `${fs.home}/.bldr/gattrs`;
-  private get _gattrsPath() {
-    return this._gattrsDir + this.path.replace(fs.home, "").replace(/\//g, ".");
+  static get _gattrsDir() {
+    return `${fs.home}/.bldr/gattrs`;
   }
+  private get _gattrsPath() {
+    return File._gattrsDir + "/" + strFileEscape(this.path.replace(fs.home, "").slice(1), ".") + ".json";
+  }
+  static gattrsPurge = async (opts: SMM = {}) => {
+    await fs.purgeDir(File._gattrsDir, opts);
+  };
 
   /** gets json from cache or reads it synchronously */
   get json(): Readonly<JSON> {
@@ -1162,7 +1177,10 @@ export class fs {
     path: string;
   }> = {};
 
-  static exists = async (path: string) => {
+  static exists = (path: string) => {
+    return fsN.existsSync(path);
+  };
+  static existsP = async (path: string) => {
     return fsN.promises.exists(path);
   };
 

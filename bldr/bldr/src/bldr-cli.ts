@@ -294,20 +294,41 @@ export class Main {
   private info = async () => {
     const pkg = await this.getPkg();
     const stats = pkg.bldArtifactFile.exists ? pkg.bldArtifactFile.gattrs.stats : undefined;
+    const bldPathNice = pkg.bldArtifactFile.path.replace(fs.home, "~");
+    const attrsPath = pkg.bldArtifactFile.gattrsF.path.replace(fs.home, "~");
+    const bootstrapped = fs.exists(`${pkg.pathAbs}/node_modules`);
+    const isFresh = await pkg.bldArtifactIsUpToDate();
     logDefault.l1(`:INFO: ${pkg.name} ${pkg.json.version} ${pkg.pathRel}`);
-    logDefault.l1(`  - ${pkg.bldArtifactFile.exists ? "built" : "not built"}`);
-    logDefault.l1(`  - install times: ${stats?.installTimes ?? "n/a"}`);
-    logDefault.l1(`  - build times: ${stats?.buildTimes ?? "n/a"}`);
-    logDefault.l1(`  - build sizes: ${stats?.buildSizes ?? "n/a"}`);
-    await this.tree();
+    logDefault.l1(`  - build artifact:`);
+    logDefault.l1(`    - tgz: ${bldPathNice}`);
+    logDefault.l1(`    - attrs: ${attrsPath}`);
+    logDefault.l1(`    - bootstrapped: ${bootstrapped ? "yes" : "no"}`);
+    logDefault.l1(`    - built: ${pkg.bldArtifactFile.exists ? "yes" : "no"}`);
+    logDefault.l1(`    - build is fresh: ${isFresh ? "yes" : "no"}`);
+
+    const bootstrapTimes = stats?.bootstrapTimes?.map((t) => Time.diff(t)).join(", ") || "n/a";
+    logDefault.l1(`  - install times: ${bootstrapTimes}`);
+    const buildTimes = stats?.buildTimes?.map((t) => Time.diff(t)).join(", ") || "n/a";
+    logDefault.l1(`  - build times: ${buildTimes}`);
+    const buildSizes = stats?.buildSizes?.map((s) => `${s / (1024 * 1024)}MB`).join(", ") || "n/a";
+    logDefault.l1(`  - build sizes: ${buildSizes}`);
+
+    const caches = (await pkg.bldArtifactCacheList()).map((c) => c.replace(fs.home, "~"));
+    logDefault.l1(`  - caches: ${caches.length ? "" : "none"}`);
+    caches.forEach((c) => logDefault.l1(`      ${c}`));
+    await this.tree({ embedded: true });
   };
 
-  private tree = async () => {
+  private tree = async (opts: { embedded?: boolean } = {}) => {
+    const { embedded: embedded } = opts;
     const paths = this.args["--all"] ? undefined : await this.getPkgPaths({ usageOnEmpty: true });
-    await Bldr.treeViz({
+    const tree = await Bldr.treeViz({
       includes: paths,
+      embedded,
       excludes: this.excludes,
+      print: false,
     });
+    logDefault.l1(tree);
   };
 
   private sync = async () => {

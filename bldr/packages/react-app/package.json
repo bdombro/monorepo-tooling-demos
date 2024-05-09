@@ -46,5 +46,9 @@
       "last 1 firefox version",
       "last 1 safari version"
     ]
+  },
+  "devDependencies": {
+    "@app/lib3": "../lib3/package.tgz",
+    "@app/lib2": "../lib2/package.tgz"
   }
 }

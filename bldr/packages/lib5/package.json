@@ -13,7 +13,8 @@
     "start": "tsc --watch"
   },
   "license": "ISC",
-  "dependencies": {},
+  "dependencies": {
+  },
   "devDependencies": {
     "@app/lib0": "workspace:*",
     "@app/lib1": "workspace:*",

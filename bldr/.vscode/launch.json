@@ -16,11 +16,8 @@
       "env": {
         "LOG": "1"
       },
-      // "args": ["build", "react-app"]
-      // "args": ["tree", "lib3"]
-      "args": ["build", "lib3"]
+      "args": ["build", "react-app"]
       // "args": ["clean", "--all", "--ws", "--buildCache"]
-      // "args": ["tree", "lib3"]
     },
     {
       "name": "bldr:yarn",
