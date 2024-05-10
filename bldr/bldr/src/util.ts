@@ -711,16 +711,22 @@ class File<
     try {
       if (this._bufferVal) return this._bufferVal;
       this._bufferVal = fsN.readFileSync(this.path);
-      return this._bufferVal;
     } catch (e: anyOk) {
-      throw stepErr(e, `F:buffer`, { bufferPath: this.path });
+      if (this.jsonDefault) this._bufferVal = Buffer.from(str(this.jsonDefault));
+      else throw stepErr(e, `F:buffer`, { bufferPath: this.path });
     }
+    return this._bufferVal;
   }
   /** Gets buffer from cache or reads with a promise  */
   bufferP = async () => {
     try {
       if (this._bufferVal) return this._bufferVal;
-      this._bufferVal = await fsN.promises.readFile(this.path);
+      try {
+        this._bufferVal = await fsN.promises.readFile(this.path);
+      } catch (e: anyOk) {
+        if (this.jsonDefault) this._bufferVal = Buffer.from(str(this.jsonDefault));
+        else throw e;
+      }
       return this._bufferVal;
     } catch (e: anyOk) {
       throw stepErr(e, `F:bufferP`, { bufferPath: this.path });
@@ -847,31 +853,43 @@ class File<
     return File._gattrsDir + "/" + strFileEscape(this.path.replace(fs.home, "").slice(1), ".") + ".json";
   }
 
+  //
+  //
+  // The JSON attrs are unfortunetely complicated, because we support partial updates
+  // and lazy loading/setting.
+  //
+  //
+
   /** gets json from cache or reads it synchronously */
   get json(): JSON {
-    if (this._jsonVal) return this._jsonVal;
-    try {
+    if (!this._jsonVal) {
       try {
         this._jsonVal = JSON.parse(this.text);
+        if (Is.und(this._jsonOrig)) {
+          this._jsonOrig = O.cp(this._jsonVal);
+        }
       } catch (e: anyOk) {
-        if (this.jsonDefault) this._jsonVal = this.jsonDefault;
-        else throw e;
+        throw stepErr(e, "F:json", { jsonPath: this.path });
       }
-      if (Is.und(this._jsonOrig)) {
-        this._jsonOrig = O.cp(this._jsonVal);
-      }
-      return this._jsonVal!;
-    } catch (e: anyOk) {
-      throw stepErr(e, "F:json", { jsonPath: this.path });
     }
+
+    if (this._pjsonVal) {
+      O.ass(this._jsonVal, this._pjsonVal);
+      delete this._pjsonVal;
+    }
+    if (this._pdjsonVal) {
+      this._jsonVal = O.merge(this._jsonVal, this._pdjsonVal) as JSON;
+      delete this._pdjsonVal;
+    }
+
+    return this._jsonVal!;
   }
   jsonP = async () => {
-    await this.textP();
+    if (!this._jsonVal) await this.textP();
     return this.json;
   };
   /** sets the value of the json obj to be stored on the file */
   set json(to: JSON) {
-    delete this._jsonOrig;
     this._jsonVal = to;
   }
   /** A setter that returns this */
@@ -881,28 +899,20 @@ class File<
   }
   /** set json, but shallow merges into the existing json */
   pjson(to: Partial<JSON>) {
-    this.json = { ...this.json, ...to };
+    if (!this._pjsonVal) this._pjsonVal = {};
+    O.ass(this._pjsonVal, to);
     return this;
   }
-  /** set json, but shallow merges into the existing json with a promise */
-  pjsonP = async (to: Partial<JSON>) => {
-    await this.jsonP();
-    this.pjson(to);
-    return this;
-  };
+  private _pjsonVal?: Partial<JSON>;
   /** set json, but deep merges into the existing json */
   pdjson(to: PartialR<JSON>) {
-    this.json = O.merge(this.json, to) as JSON;
+    if (!this._pdjsonVal) this._pdjsonVal = {};
+    this._pdjsonVal = O.merge(this._pdjsonVal, to) as PartialR<JSON>;
     return this;
   }
-  /** set json, but deep merges into the existing json with a promise */
-  pdjsonP = async (to: PartialR<JSON>) => {
-    await this.jsonP();
-    this.pdjson(to);
-    return this;
-  };
+  private _pdjsonVal?: PartialR<JSON>;
   get jsonDirty() {
-    return !O.eq(this._jsonOrig, this._jsonVal);
+    return this._pjsonVal || this._pdjsonVal || !O.eq(this._jsonOrig, this._jsonVal);
   }
   static jsonStr(json: anyOk) {
     // Format it like Prettier does
@@ -977,7 +987,9 @@ class File<
       let buffer: Buffer | undefined = undefined;
       if (this.bufferDirty) buffer = this.buffer;
       if (this.textDirty) buffer = Buffer.from(this.text);
-      if (this.jsonDirty) buffer = Buffer.from(File.jsonStr(this.json));
+      // Us the promise to get jsonP bc jsonDirty can be true even without having ever read buffer
+      // if (this.path.includes(File._gattrsDir) && this.jsonDirty) debugger;
+      if (this.jsonDirty) buffer = Buffer.from(File.jsonStr(await this.jsonP()));
 
       if (!buffer && !this.exists) {
         throw stepErr(Error(`No buffer to save from`), "buffer-get");
@@ -1030,17 +1042,21 @@ class File<
   };
 
   snapshot = async (name: string) => {
-    const snaps: SnapshotFile = await this.snapshotF.jsonP();
-    const buffer = await this.bufferP();
-    const gz = await gzip(buffer);
-    const gzbase64 = gz.toString("base64");
-    const snap: Snapshot = {
-      name,
-      ts: Date.now(),
-      gzbase64,
-    };
-    snaps[name] = snap;
-    return this.snapshotF.set({ json: snaps });
+    try {
+      const snaps: SnapshotFile = await this.snapshotF.jsonP();
+      const buffer = await this.bufferP();
+      const gz = await gzip(buffer);
+      const gzbase64 = gz.toString("base64");
+      const snap: Snapshot = {
+        name,
+        ts: Date.now(),
+        gzbase64,
+      };
+      snaps[name] = snap;
+      return this.snapshotF.set({ json: snaps });
+    } catch (e) {
+      throw stepErr(e, "F:snapshot", { filePath: this.path, snapName: name, snapPath: this._snapshotPath });
+    }
   };
   snapshotGet = async (
     name: string,
@@ -1079,6 +1095,7 @@ class File<
       return res;
     } catch (e: anyOk) {
       throw stepErr(e, "F:snapshotGet", {
+        filePath: this.path,
         snapName: name,
         snapPath: this._snapshotPath,
       });
@@ -1099,7 +1116,7 @@ class File<
   };
   get snapshotF() {
     if (this._snapshotFVal) return this._snapshotFVal;
-    this._snapshotFVal = new File<SnapshotFile, anyOk>(this._snapshotPath);
+    this._snapshotFVal = new File<SnapshotFile, anyOk>(this._snapshotPath, { jsonDefault: {} });
     return this._snapshotFVal;
   }
   private _snapshotFVal?: File<SnapshotFile, anyOk>;

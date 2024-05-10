@@ -48,7 +48,7 @@
     ]
   },
   "devDependencies": {
-    "@app/lib3": "../lib3/package.tgz",
-    "@app/lib2": "../lib2/package.tgz"
+    "@app/lib3": "workspace:*",
+    "@app/lib2": "workspace:*"
   }
 }

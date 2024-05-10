@@ -16,7 +16,7 @@
       "env": {
         "LOG": "1"
       },
-      "args": ["build", "lib3"]
+      "args": ["build", "react-app"]
       // "args": ["clean", "--all", "--ws", "--buildCache"]
     },
     {
@@ -49,7 +49,22 @@
       // "envFile": "${workspaceFolder}/.envrc",
       // "args": ["clean", "city", "--include-dependencies", "--ws", "--buildCache"],
       // "args": ["tree", "city"]
-      "args": ["build", "city"]
+      "args": ["build", "eslint-plugin"]
+    },
+    {
+      "name": "bldr:code:clean",
+      "type": "bun",
+      "internalConsoleOptions": "neverOpen",
+      "request": "launch",
+      "program": "${workspaceFolder}/bldr/src/bldr-cli.ts",
+      "cwd": "/Users/brian.dombrowski/Dev/Javascript/monorepo-tooling/code-clean/js/packages/shared-fe",
+      "stopOnEntry": false,
+      "watchMode": false,
+      "env": {
+        "LOG": "1",
+        "NPM_TOKEN": "${env:NPM_TOKEN}",
+      },
+      "args": ["clean", "city", "--include-dependencies", "--ws", "--buildCache"],
     },
     // To attach, just start this before running bun in a Javascript debug terminal
     {

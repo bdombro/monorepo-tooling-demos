@@ -509,7 +509,9 @@ class PkgWithBuild extends PkgWTree {
     }
   });
 
-  private bldArtifactAttrsCreate = cachify(async (): Promise<PkgArtifactAttrs> => {
+  private bldArtifactAttrsCreate = async (opts: { bustCache?: boolean } = {}): Promise<PkgArtifactAttrs> => {
+    const { bustCache } = opts;
+    if (this._bldArtifactAttrsCreateVal && !bustCache) return this._bldArtifactAttrsCreateVal;
     try {
       this.l4(`->bldArtifactAttrsCreate`);
 
@@ -545,9 +547,10 @@ class PkgWithBuild extends PkgWTree {
             "dist",
             "build",
             "jest",
-            "lint",
+            "/lint", // prefix with a slash to avoid matching eslint package crosslink false pos
             "node_modules",
             "public",
+            "test",
             "stories",
             "story",
             "styleguide",
@@ -625,20 +628,14 @@ class PkgWithBuild extends PkgWTree {
       };
 
       // save the attrs so we can retrieve it in pkgJsonPostbuild
-      await this.pkgMetaFile
-        .pjson({
-          bldArtifactAttrsCreateLast: {
-            val: attrs,
-            ts: Time.iso(),
-          },
-        })
-        .save();
+      await this.pkgMetaFile.setBldArtifactAttrsCreateLast(attrs);
 
-      return attrs;
+      return (this._bldArtifactAttrsCreateVal = attrs);
     } catch (e) {
       throw stepErr(e, "bldArtifactAttrsCreate");
     }
-  });
+  };
+  private _bldArtifactAttrsCreateVal?: PkgArtifactAttrs;
 
   private bldArtifactAttrsUpdate = async () => {
     this.bldArtifactFile.cacheClear();
@@ -769,13 +766,12 @@ class PkgWithBuild extends PkgWTree {
     // if we get here, the bld artifact is not up to date
     // so we log the differences
     const cmp = O.cmp({ ...existing.deps, ...existing.files }, { ...expected.deps, ...expected.files });
-    if (!cmp.equals) {
-      cmp.added.forEach((pathRel) => this.l1(`:added->${pathRel}`));
-      cmp.modified.forEach((pathRel) => this.l1(`:changed->${pathRel}`));
-      cmp.removed.forEach((pathRel) => this.l1(`:removed->${pathRel}`));
-    } else {
+    if (cmp.equals) {
       throw stepErr(Error("combined csum changed but files didn't"), "bldArtifactIsUpToDate");
     }
+    cmp.added.forEach((pathRel) => this.l1(`:added->${pathRel}`));
+    cmp.modified.forEach((pathRel) => this.l1(`:changed->${pathRel}`));
+    cmp.removed.forEach((pathRel) => this.l1(`:removed->${pathRel}`));
 
     await this.pkgMetaFile.setCacheMissReason(cmp.changed.join(", "));
     return false;
@@ -890,7 +886,7 @@ class PkgWithBuild extends PkgWTree {
 
       _p.push(this.bldDependencies({ noCache }));
       // create backup of package.json to be restored in pkgJsonPostinstall
-      _p.push(fs.get(`${this.pathAbs}/package.json`).snapshot("pkgJsonPreinstall"));
+      _p.push(this.jsonF.snapshot("pkgJsonPreinstall"));
 
       // 1. remove cls from yarn.lock so yarn fresh installs
       _p.push(this.lockfileClean());
@@ -963,17 +959,14 @@ class PkgWithBuild extends PkgWTree {
         this.lockfileClean(),
 
         // restore the dependencies in package.json
-        fs
-          .getPkgJsonFile(`${this.pathAbs}/package.json`)
-          .snapshotGet("pkgJsonPreinstall")
-          .then((snap) => {
-            const sj = snap.json as PkgJsonFields;
-            const jsonN = O.cp(this.json);
-            if (sj.dependencies) jsonN.dependencies = sj.dependencies;
-            if (sj.devDependencies) jsonN.devDependencies = sj.devDependencies;
-            if (sj.peerDependencies) jsonN.peerDependencies = sj.peerDependencies;
-            return this.jsonF.set({ json: jsonN });
-          }),
+        this.jsonF.snapshotGet("pkgJsonPreinstall").then((snap) => {
+          const sj = snap.json as PkgJsonFields;
+          const jsonN = O.cp(this.json);
+          if (sj.dependencies) jsonN.dependencies = sj.dependencies;
+          if (sj.devDependencies) jsonN.devDependencies = sj.devDependencies;
+          if (sj.peerDependencies) jsonN.peerDependencies = sj.peerDependencies;
+          return this.jsonF.set({ json: jsonN });
+        }),
         // this.pkgJsonGenerate(), // TODO: decide whether to re-enable
       ]);
     } catch (e: anyOk) {
@@ -1138,18 +1131,29 @@ class PkgWithBuild extends PkgWTree {
       });
     }
     return O.ass(this._pkgMetaFile, {
+      setBldArtifactAttrsCreateLast: (attrs: PkgArtifactAttrs) =>
+        this._pkgMetaFile
+          .pdjson({
+            bldArtifactAttrsCreateLast: {
+              val: attrs,
+              ts: Time.iso(),
+            },
+          })
+          .save()
+          .catch(stepErrCb("setBldArtifactAttrsCreateLast")),
       setCacheMissReason: (cacheMissReason: string) =>
-        this._pkgMetaFile.set({ pdjson: { stats: { cacheMissReason } } }),
+        this._pkgMetaFile.pdjson({ stats: { cacheMissReason } }).save().catch(stepErrCb("setCacheMissReason")),
       setStats: async (bootTime: number, bldTime: number) =>
-        this._pkgMetaFile.set({
-          pdjson: {
+        this._pkgMetaFile
+          .pdjson({
             stats: {
               bootstrapTimes: [bootTime],
               buildTimes: [bldTime],
               buildSizes: [await this.bldArtifactFile.sizeP()],
             },
-          },
-        }),
+          })
+          .save()
+          .catch(stepErrCb("setStats")),
     });
   }
   // private _pkgMetaFile!: ReturnTypeP<typeof fs.get<PkgMeta, never>> & {
@@ -1217,6 +1221,7 @@ class PkgWSync extends PkgWithBuild {
       ".storybook",
       "storybook",
       "styleguide",
+      "test",
       "yarn.lock",
     ];
 

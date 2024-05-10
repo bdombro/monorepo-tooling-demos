@@ -310,8 +310,9 @@ export class Main {
 
     logDefault.l1([
       ``,
-      `INFO ${pkg.name} ${pkg.json.version} ${pkg.pathRel}`,
+      `INFO ${pkg.name}`,
       ``,
+      `  - path: ${pkg.pathRel}`,
       `  - metafile: ${metaPathNice}`,
       `  - tgz: ${bldPathNice}`,
       `  - attrs: ${attrsPath}`,
