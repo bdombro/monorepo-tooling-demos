@@ -27,7 +27,7 @@
  *  - The crosslinks of the package are already built and packed into package.tgz
  */
 import arg from "arg";
-import { cachify, fs, Log, logDefault, P, sh, stepErr, Time, UTIL_ENV, A, strCompare, throttle } from "./util.js";
+import { cachify, fs, Log, logDefault, P, sh, stepErr, Time, UTIL_ENV, A, strCompare, throttle, str } from "./util.js";
 import { Pkg, Bldr } from "./bldr-lib.js";
 import bldrPkgJson from "../package.json";
 
@@ -171,6 +171,11 @@ export class Main {
           await this.build();
           break;
         }
+        case "buildAttributes": {
+          printEndTxt = false;
+          await this.buildAttributes();
+          break;
+        }
         case "clean": {
           await this.clean();
           break;
@@ -180,10 +185,12 @@ export class Main {
           break;
         }
         case "info": {
+          printEndTxt = false;
           await this.info();
           break;
         }
         case "tree": {
+          printEndTxt = false;
           await this.tree();
           break;
         }
@@ -224,7 +231,7 @@ export class Main {
       process.exit(1);
     }
 
-    await log.lFinish();
+    await log.lFinish({ printLogfile: printEndTxt });
     if (printEndTxt) {
       logDefault.l1(`-- done in ${Time.diff(start)} --`);
     }
@@ -326,6 +333,12 @@ export class Main {
       ...caches.map((c) => `    ${c}`),
       ``,
     ]);
+  };
+
+  private buildAttributes = async () => {
+    const pkg = await this.getPkg();
+    logDefault.l1(`\nINFO:SRC-FILES ${pkg.name}\n`);
+    logDefault.l1(str(await pkg.bldArtifactAttrsGet(), 2));
   };
 
   private tree = async (opts: { embedded?: boolean } = {}) => {

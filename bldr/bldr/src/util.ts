@@ -1933,10 +1933,10 @@ export class Log {
     );
   };
 
-  lFinish = async (opts: { err?: anyOk } = {}) => {
-    const { err } = opts;
+  lFinish = async (opts: { err?: anyOk; printLogfile?: boolean } = {}) => {
+    const { err, printLogfile = true } = opts;
     if (err) this.lErrCtx(err);
-    this.l1(`LOG: ${Log.file.replace(fs.home, "~")}`);
+    if (printLogfile) this.l1(`LOG: ${Log.file.replace(fs.home, "~")}`);
     await Log.waitForlogFileSettled();
   };
 
