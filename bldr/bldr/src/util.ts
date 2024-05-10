@@ -5,11 +5,13 @@ import cryptoN from "node:crypto";
 import fsN from "node:fs";
 import osN from "node:os";
 import pathN from "node:path";
-import { Readable } from "node:stream";
-import urlNode from "node:url";
-import utilNode from "node:util";
+import streamN from "node:stream";
+import urlN from "node:url";
+import utilN from "node:util";
+import zlibN from "node:zlib";
+
 import equals from "fast-deep-equal";
-import { merge } from "merge-anything";
+import { mergeAndConcat } from "merge-anything";
 
 export const UTIL_ENV = {
   ci: process.env["CI"] === "1" ? true : false,
@@ -28,16 +30,16 @@ export const A = {
     b: B[],
   ) => {
     const added = b.filter((v: anyOk) => !a.includes(v));
-    const changed: A[] = [];
+    const modified: A[] = [];
     const removed = a.filter((v: anyOk) => !b.includes(v));
     const unchanged: A[] = [];
     for (const ao of a) {
       for (const bo of b) {
         if (equals(ao, bo)) unchanged.push(ao);
-        else changed.push(ao);
+        else modified.push(ao);
       }
     }
-    return { added, removed, changed, unchanged };
+    return { added, removed, modified, unchanged };
   },
   /** Depups an array in place */
   dedup: <T>(arr: T[]) => {
@@ -96,7 +98,20 @@ export function cachify<T extends Fnc>(fn: T): Cachified<T> {
   return cached as T;
 }
 
-/** methods to check if a var is a type */
+export const gzip = utilN.promisify(zlibN.gzip);
+export const gzipSync = zlibN.gzipSync;
+export const gunzip = utilN.promisify(zlibN.gunzip);
+export const gunzipSync = zlibN.gunzipSync;
+
+/**
+ * methods to check if a var is a type
+ *
+ * tips: returning 'a is T' is a type guard that helps with type inference.
+ * ex
+ * if (Is.str(a)) {
+ *  a // ts knows 'a' is a string
+ * }
+ */
 export const Is = {
   /** alias for Array.isArray */
   arr: Array.isArray,
@@ -108,6 +123,8 @@ export const Is = {
   buffer: Buffer.isBuffer,
   /** checks if a var is a date */
   date: (a: unknown): a is Date => a instanceof Date,
+  /** checks if a var is defined and not null */
+  def: <T>(a: T): a is NonNullable<T> => a !== undefined && a !== null,
   /** checks if a var is a function */
   fnc: <T>(a: T): T extends Fnc ? true : false => (typeof a === "function") as anyOk,
   /** checks if a var is a map */
@@ -133,10 +150,10 @@ export const Is = {
     Is.set(a) ||
     Is.str(a) ||
     // Is.sym(a) || // technically serializable, into "Symbol(value)"
-    (Is.undef(a) as anyOk), // technically is just omitted
+    (Is.und(a) as anyOk), // technically is just omitted
   /** checks if var is a scalar */
   scalar: (a: anyOk): a is Scalar =>
-    Is.bigint(a) || Is.bool(a) || Is.date(a) || Is.null(a) || Is.num(a) || Is.str(a) || Is.undef(a),
+    Is.bigint(a) || Is.bool(a) || Is.date(a) || Is.null(a) || Is.num(a) || Is.str(a) || Is.und(a),
   /** checks if a var is a RegExp */
   regex: (a: unknown): a is RegExp => a instanceof RegExp,
   /** checks if a var is a set */
@@ -146,7 +163,7 @@ export const Is = {
   /** checks if a var is a symbol */
   sym: (a: unknown): a is symbol => typeof a === "symbol",
   /** checks if a var is undefined */
-  undef: (a: unknown): a is undefined => typeof a === "undefined",
+  und: (a: unknown): a is undefined => typeof a === "undefined",
 };
 
 /** makes a Dict from an array of objects, keyed by `key` */
@@ -193,7 +210,7 @@ export const O = {
   /** A super basic compare check */
   cmp: <O1 extends Record<anyOk, anyOk>, O2 extends Record<anyOk, anyOk>>(o1: O1, o2: O2) => {
     const added: (keyof O2)[] = [];
-    const changed: (keyof O1)[] = [];
+    const modified: (keyof O1)[] = [];
     const removed: (keyof O1)[] = [];
     const unchanged: (keyof O1)[] = [];
 
@@ -201,19 +218,21 @@ export const O = {
     for (const k in o1) {
       if (k in o2) {
         if (equals(o1[k], o2[k])) unchanged.push(k);
-        else changed.push(k);
+        else modified.push(k);
       } else removed.push(k);
     }
-    added.push(...O.keys(o2).filter((k) => !(changed.includes(k) || removed.includes(k) || unchanged.includes(k))));
+    added.push(...O.keys(o2).filter((k) => !(modified.includes(k) || removed.includes(k) || unchanged.includes(k))));
 
     return {
-      equals: added.length + changed.length + removed.length === 0 ? true : false,
+      equals: added.length + modified.length + removed.length === 0 ? true : false,
       added,
-      changed,
+      /** all files that were added, modified, or removed */
+      changed: [...added, ...modified, ...removed],
+      modified,
       removed,
     };
   },
-  cp: <T>(o: T): ReadonlyNot<T> => structuredClone(o),
+  cp: <T>(o: T): T => structuredClone(o),
   /** Deeply check if objs are equal */
   eq: equals,
   /** An alias for Object.entries */
@@ -223,7 +242,7 @@ export const O = {
   /** An alias for Object.keys with better types */
   keys: <T extends HashM<anyOk>>(obj: T): (keyof T)[] => Object.keys(obj) as anyOk,
   /** Deeply merge objects */
-  merge,
+  merge: mergeAndConcat,
   /** Shallow merge objects */
   mergeShallow: <T1, T2>(o1: T1, o2: T2): T1 & T2 => {
     const res = O.ass({}, o1, o2);
@@ -337,20 +356,19 @@ export const O = {
 
 /** alias for Promise */
 export const P = O.ass(Promise, {
+  /**
+   * similar to Promise.all, but also flushes the list, which is convenient if
+   * using re-useable promise arrays.
+   */
+  allF: (async (
+    // @ts-expect-error - it's fine
+    ps,
+  ) => {
+    // splice bc it gets cranky otherwise
+    return Promise.all(ps.splice(0, ps.length));
+  }) as PromiseConstructor["all"],
   wr: Promise.withResolvers,
 });
-
-/**
- * similar to Promise.all, but also flushes the list, which is convenient if
- * using re-useable promise arrays.
- */
-export const pAll: typeof Promise.all = async (
-  // @ts-expect-error - it's fine
-  ps,
-) => {
-  // splice bc it gets cranky otherwise
-  return Promise.all(ps.splice(0, ps.length));
-};
 
 /**
  * Stack traces are the best if you throw this function
@@ -593,8 +611,8 @@ export class LocalCache<ATTRS extends HashM<anyOk>> extends AbstractCache<ATTRS>
     try {
       l3("LCACHE:purge");
       const { excludes, includes } = opts;
-      const files = (await fs.find(this.cacheDir, { excludes, includes })).map(fs.get);
-      const count = await P.all(files.map((f) => f.del()));
+      const files = (await fs.find(this.cacheDir, { excludes, includes })).map((f) => File.get<never, never>(f));
+      const count = await P.all(files.map((f) => f.delP()));
       return count;
     } catch (e: anyOk) {
       throw stepErr(e, "LocalCache:purge");
@@ -625,27 +643,63 @@ export class LocalCache<ATTRS extends HashM<anyOk>> extends AbstractCache<ATTRS>
  *
  * - provides lazy getters for buffer, json, text, ghost attrs, xattrs with caches
  * - provides async methods to get, reset, save, set
+ * - tip: DO store file instances in a central cache or suffer perf hits, memory leaks, and data loss. For
+ *   convenience, use File.get(path) to get a file instance which is cached.
  * - tip: if performance is a concern, consider promise methods for async operations unless you're confident
  *   that you already pumped caches. File.read is handy for pumping caches.
  */
+interface FileOpts<JSON, GATTRS> {
+  jsonDefault?: JSON;
+  gattrsDefault?: GATTRS;
+}
+export type FileI<JSON, GATTRS> = File<JSON, GATTRS>;
 class File<
   /** Type of json */
   JSON,
   /** Type of ghost attrs */
   GATTRS,
 > {
-  constructor(path: string) {
+  constructor(path: string, opts: FileOpts<JSON, GATTRS> = {}) {
     this._path = path;
+    if (opts.jsonDefault) this.jsonDefault = opts.jsonDefault;
+    if (opts.gattrsDefault) this.gattrsDefault = opts.gattrsDefault;
   }
 
-  append(buffer: Buffer | string) {
-    this.buffer = Buffer.concat([this.buffer, Is.buffer(buffer) ? buffer : Buffer.from(buffer)]);
-    return this;
-  }
-  appendP = async (buffer: string | Buffer) => {
-    await this.bufferP();
-    this.append(buffer);
-    return this;
+  /** Returns a File instance from cache or new */
+  static get = <JSON, GATTRS>(path: string, opts?: FileOpts<JSON, GATTRS>) => {
+    let file = File._getCache.get(path);
+    if (!file) {
+      file = new File(path, opts);
+      File._getCache.set(path, file);
+    }
+    return file as File<JSON, GATTRS>;
+  };
+  private static _getCache = new Map<string, File<anyOk, anyOk>>();
+
+  /** get package.json file */
+  static getPkgJsonFile = (pathToPkgOrPkgJson: string) => {
+    let path = pathToPkgOrPkgJson;
+    if (!path.endsWith("package.json")) path = `${path}/package.json`;
+    const jsonF = fs.get<PkgJsonFields, never>(path);
+    const pkgF = O.ass(jsonF, {
+      /** Disable install and build hooks */
+      disableHooks: async () => {
+        if (jsonF.json.scripts) {
+          const next = { ...jsonF.json };
+          O.replKeys<PkgJsonFields>(next.scripts!, /^(preinstall|postinstall|prebuild|postbuild)/, `//$1`, true);
+          await jsonF.set({ json: next });
+        }
+      },
+      /** re-enable install and build hooks which were disabled */
+      enableHooks: async () => {
+        if (jsonF.json.scripts) {
+          const next = { ...jsonF.json };
+          O.replKeys(next.scripts!, /^(\/\/)(preinstall|postinstall|prebuild|postbuild)/, `$2`, true);
+          await jsonF.set({ json: next });
+        }
+      },
+    });
+    return pkgF;
   };
 
   get basename() {
@@ -655,14 +709,8 @@ class File<
   /** Gets a buffer from cache or reads synchronously */
   get buffer(): Buffer {
     try {
-      if (!this._bufferVal) {
-        try {
-          this._bufferVal = fsN.readFileSync(this.path);
-        } catch (e) {
-          this._bufferVal = Buffer.from("", "utf-8");
-          this.bufferDirty = true;
-        }
-      }
+      if (this._bufferVal) return this._bufferVal;
+      this._bufferVal = fsN.readFileSync(this.path);
       return this._bufferVal;
     } catch (e: anyOk) {
       throw stepErr(e, `F:buffer`, { bufferPath: this.path });
@@ -671,39 +719,46 @@ class File<
   /** Gets buffer from cache or reads with a promise  */
   bufferP = async () => {
     try {
-      if (!this._bufferVal) {
-        if (this.exists) {
-          this._bufferVal = await fsN.promises.readFile(this.path);
-        } else {
-          this._bufferVal = Buffer.from("", "utf-8");
-          this.bufferDirty = true;
-        }
-      }
+      if (this._bufferVal) return this._bufferVal;
+      this._bufferVal = await fsN.promises.readFile(this.path);
       return this._bufferVal;
     } catch (e: anyOk) {
       throw stepErr(e, `F:bufferP`, { bufferPath: this.path });
     }
   };
-  set buffer(buffer: Buffer | string) {
-    delete this._jsonVal;
-    delete this._md5Val;
-    this._bufferVal = Is.buffer(buffer) ? buffer : Buffer.from(buffer);
+  set buffer(buffer: Buffer) {
+    this._bufferVal = buffer;
     this.bufferDirty = true;
   }
   /** A setter that returns this, for chaining */
-  bufferSet(buffer: Buffer | string) {
+  bufferSet(buffer: Buffer) {
     this.buffer = buffer;
     return this;
   }
   private bufferDirty = false;
   private _bufferVal?: Buffer;
 
-  del = async (skipgGattrsDel?: boolean) => {
-    await fs.rm(this.path, { force: true });
-    if (!skipgGattrsDel) await this.gattrsF.del(true);
-    this.buffer = Buffer.from("", "utf-8");
+  cacheClear = () => {
+    this.bufferDirty = this.textDirty = false;
+    delete this._bufferVal;
     delete this._existsVal;
+    delete this._jsonOrig;
+    delete this._jsonVal;
+    delete this._md5Val;
     delete this._statVal;
+    delete this._textVal;
+    return this;
+  };
+
+  del = () => {
+    fs.rmSync(this.path, { force: true });
+    if (!this.path.includes(File._gattrsDir)) this.gattrsF.del();
+    this.cacheClear();
+  };
+  delP = async () => {
+    await fs.rm(this.path, { force: true });
+    if (!this.path.includes(File._gattrsDir)) await this.gattrsF.delP();
+    this.cacheClear();
   };
 
   get dirname() {
@@ -744,16 +799,13 @@ class File<
    * will not be findable automatically.
    *
    * This is kinda like a low-tech LevelDB for files.
-   *
-   * There are hidden attributes like file snapshots, which are filtered from the get/sets.
    */
   get gattrs(): GATTRS {
     try {
-      l5(`F:gattrs->${this.path}`);
-      const attrsNoHidden = O.omit(this.gattrsAll, ["hidden"]) as GATTRS;
-      this._gattrsVal = attrsNoHidden;
-      if (!this._gattrsOrig) this._gattrsOrig = attrsNoHidden;
-      return attrsNoHidden;
+      l4(`F:gattrs->${this.path}`);
+      // This shouldn't happen normally, but delete orphaned ghost files
+      if (!this.exists && this.gattrsF.exists) this.gattrsF.del();
+      return this.gattrsF.json;
     } catch (e: anyOk) {
       throw stepErr(e, "F:gattrs", {
         filePath: this.path,
@@ -762,76 +814,32 @@ class File<
     }
   }
   gattrsP = async (): Promise<GATTRS> => {
-    await this.gattrsAllP();
+    // This shouldn't happen normally, but delete orphaned ghost files
+    if (!(await this.existsP()) && (await this.gattrsF.existsP())) await this.gattrsF.delP();
+    await this.gattrsF.jsonP().catch(() => {});
     return this.gattrs;
   };
-  get gattrsAll(): GATTRS & FileGattrsHidden {
-    try {
-      l4(`F:gattrsAll->${this.path}`);
-      if (!this.exists) {
-        this.gattrsF.del().catch(() => {});
-        throw stepErr(Error(`Trying to get gattrs on file which d.n.e.`), "F:gattrs", {
-          filePath: this.path,
-        });
-      }
-      return this.gattrsF.json;
-    } catch (e: anyOk) {
-      throw stepErr(e, "F:gattrsAll", {
-        filePath: this.path,
-        gattrsPath: this._gattrsPath,
-      });
-    }
-  }
-  gattrsAllP = async (): Promise<GATTRS> => {
-    try {
-      l4(`F:gattrsAllP->${this.path}`);
-      await this.existsP();
-      await this.gattrsF.jsonP().catch(() => {});
-      return this.gattrsAll;
-    } catch (e: anyOk) {
-      throw stepErr(e, "F:gattrsP", {
-        filePath: this.path,
-        gattrsPath: this._gattrsPath,
-      });
-    }
-  };
   set gattrs(to: GATTRS) {
-    this._gattrsVal = to;
-    if (!this._gattrsOrig) this._gattrsOrig = to;
+    if (this.path.includes(File._gattrsDir)) {
+      throw stepErr(Error(`Cannot set gattrs on a gattrs file`), "F:gattrs", { gattrsPath: this.path });
+    }
+    this.gattrsF.json = to;
   }
-  /** A setter that returns this*/
+  /** A setter that returns this */
   gattrsSet = (to: GATTRS) => {
     this.gattrs = to;
     return this;
   };
-  /** sets gattrs but with a promise read to this.gattrsF.jsonP() */
-  gattrsSetP = async (to: GATTRS) => {
-    await this.gattrsP();
-    this.gattrs = to;
-    return this;
-  };
-  set gattrsAll(to: GATTRS & FileGattrsHidden) {
-    this.gattrsF.json = to;
-  }
-  /** A setter that returns this */
-  gattrsAllSet = (to: GATTRS & FileGattrsHidden) => {
-    this.gattrsAll = to;
-    return this;
-  };
-  get gattrsDirty() {
-    return this._gattrsOrig !== undefined && !O.eq(this._gattrsOrig, this._gattrsVal);
-  }
   static gattrsPurge = async (opts: SMM = {}) => {
     await fs.purgeDir(File._gattrsDir, opts);
   };
   get gattrsF() {
     if (this._gattrsFVal) return this._gattrsFVal;
-    this._gattrsFVal = new File<GATTRS & FileGattrsHidden, anyOk>(this._gattrsPath);
+    this._gattrsFVal = new File<GATTRS, anyOk>(this._gattrsPath, { jsonDefault: this.gattrsDefault });
     return this._gattrsFVal;
   }
-  private _gattrsFVal?: File<GATTRS & FileGattrsHidden, anyOk>;
-  private _gattrsOrig?: GATTRS;
-  private _gattrsVal?: GATTRS;
+  private gattrsDefault?: GATTRS;
+  private _gattrsFVal?: File<GATTRS, anyOk>;
   static get _gattrsDir() {
     return `${fs.home}/.bldr/gattrs`;
   }
@@ -843,12 +851,19 @@ class File<
   get json(): JSON {
     if (this._jsonVal) return this._jsonVal;
     try {
-      this._jsonVal = this.text ? JSON.parse(this.text) : {};
-      if (!this._jsonOrig) this._jsonOrig = this._jsonVal;
+      try {
+        this._jsonVal = JSON.parse(this.text);
+      } catch (e: anyOk) {
+        if (this.jsonDefault) this._jsonVal = this.jsonDefault;
+        else throw e;
+      }
+      if (Is.und(this._jsonOrig)) {
+        this._jsonOrig = O.cp(this._jsonVal);
+      }
+      return this._jsonVal!;
     } catch (e: anyOk) {
       throw stepErr(e, "F:json", { jsonPath: this.path });
     }
-    return this._jsonVal!;
   }
   jsonP = async () => {
     await this.textP();
@@ -856,9 +871,7 @@ class File<
   };
   /** sets the value of the json obj to be stored on the file */
   set json(to: JSON) {
-    if (!this._jsonOrig) this._jsonOrig = this.json;
-    // Format it like Prettier does
-    this.text = str(to, 2).replace(/{}/g, "{\n  }") + "\n";
+    delete this._jsonOrig;
     this._jsonVal = to;
   }
   /** A setter that returns this */
@@ -866,20 +879,41 @@ class File<
     this.json = to;
     return this;
   }
-  jsonSetP = async (to: JSON) => {
+  /** set json, but shallow merges into the existing json */
+  pjson(to: Partial<JSON>) {
+    this.json = { ...this.json, ...to };
+    return this;
+  }
+  /** set json, but shallow merges into the existing json with a promise */
+  pjsonP = async (to: Partial<JSON>) => {
     await this.jsonP();
-    this.jsonSet(to);
+    this.pjson(to);
+    return this;
+  };
+  /** set json, but deep merges into the existing json */
+  pdjson(to: PartialR<JSON>) {
+    this.json = O.merge(this.json, to) as JSON;
+    return this;
+  }
+  /** set json, but deep merges into the existing json with a promise */
+  pdjsonP = async (to: PartialR<JSON>) => {
+    await this.jsonP();
+    this.pdjson(to);
     return this;
   };
   get jsonDirty() {
-    return this._jsonOrig !== undefined && !O.eq(this._jsonOrig, this.json);
+    return !O.eq(this._jsonOrig, this._jsonVal);
   }
+  static jsonStr(json: anyOk) {
+    // Format it like Prettier does
+    return str(json, 2).replace(/{}/g, "{\n  }") + "\n";
+  }
+  private jsonDefault?: JSON;
   private _jsonVal?: JSON;
   private _jsonOrig?: JSON;
 
   get md5() {
-    if (!this._md5Val) this._md5Val = md5(this.buffer);
-    return this._md5Val;
+    return this._md5Val || (this._md5Val = md5(this.buffer));
   }
   md5P = async () => {
     await this.bufferP();
@@ -924,47 +958,42 @@ class File<
     }
   };
 
-  /** Read all file data from disk. Is nice if you want to pump caches. */
+  /** Read all file data from disk. Is nice if you want to pump caches and chaining */
   read = async () => {
     l4(`F:read->${this.path}`);
     await this.existsAssertP();
-    await P.all([this.bufferP(), this.gattrsP(), this.statP()]);
+    const _p: Promise<anyOk>[] = [];
+    _p.push(this.bufferP());
+    _p.push(this.statP());
+    if (this.gattrsF.exists) _p.push(this.gattrsP());
+    await P.all(_p);
     return this;
   };
 
   save = async () => {
     try {
-      // force an update of this.buffer if json is dirty, bc changes to inner attrs may have been missed
-      // by the set function.
-      if (this.jsonDirty) {
-        this.json = { ...this.json };
-        this._jsonOrig = this.json;
+      l4(`F:save->${this.path}`);
+
+      let buffer: Buffer | undefined = undefined;
+      if (this.bufferDirty) buffer = this.buffer;
+      if (this.textDirty) buffer = Buffer.from(this.text);
+      if (this.jsonDirty) buffer = Buffer.from(File.jsonStr(this.json));
+
+      if (!buffer && !this.exists) {
+        throw stepErr(Error(`No buffer to save from`), "buffer-get");
       }
 
-      const exists = await this.existsP();
-      if (exists) {
-        if (this.bufferDirty) {
-          l5(`F:save->${this.path}`);
-          await fs.set(this.path, this.buffer);
-          this.bufferDirty = false;
-          delete this._statVal;
-        }
-      } else {
-        this.gattrsF.del().catch(() => {});
-        await this.bufferP();
+      if (buffer) {
         await fs.mkdir(pathN.dirname(this.path));
-        await fs.set(this.path, this.buffer);
-        this.bufferDirty = false;
-        this._existsVal = true;
-        delete this._statVal;
+        await fs.set(this.path, buffer);
       }
 
-      if (this.gattrsDirty) {
-        await this.gattrsP();
-        const gattrsNext = { ...this.gattrs, hidden: this.gattrsAll?.hidden };
-        await this.gattrsAllSet(gattrsNext);
-      }
+      if (this.gattrsF.jsonDirty) await this.gattrsF.save();
       await this.saveXattrs();
+
+      this.cacheClear();
+      this._bufferVal = buffer;
+      this._existsVal = true;
 
       return this;
     } catch (e) {
@@ -977,26 +1006,22 @@ class File<
     opts: {
       buffer?: Buffer;
       gattrs?: GATTRS;
-      /** merge with gattrs  */
-      gattrsM?: PartialR<GATTRS>;
       json?: JSON;
-      /** merge with json  */
-      jsonM?: PartialR<JSON>;
+      pdjson?: PartialR<JSON>;
+      pjson?: Partial<JSON>;
       text?: string;
       xattrs?: Dict;
     } = {},
   ) => {
     try {
-      const _p: Promise<anyOk>[] = [];
-      const { buffer, gattrs, gattrsM, json, jsonM, text, xattrs } = opts;
+      const { buffer, gattrs, json, pdjson, pjson, text, xattrs } = opts;
       if (buffer) this.buffer = buffer;
       if (text) this.text = text;
-      if (json) this.jsonSet(json);
-      if (jsonM) _p.push(this.jsonSetMP(jsonM));
+      if (json) this.json = json;
+      if (pdjson) this.pdjson(pdjson);
+      if (pjson) this.pjson(pjson);
       if (xattrs) this.xattrs = xattrs;
-      if (gattrs) this.gattrsSet(gattrs);
-      if (gattrsM) _p.push(this.gattrsSetMP(gattrsM));
-      await P.all(_p);
+      if (gattrs) this.gattrs = gattrs;
       await this.save();
       return this;
     } catch (e) {
@@ -1005,36 +1030,92 @@ class File<
   };
 
   snapshot = async (name: string) => {
-    const gattrs: GATTRS & FileGattrsHidden = await this.gattrsF.jsonP();
-    if (!gattrs.hidden) gattrs.hidden = {};
-    if (!gattrs.hidden.snapshots) gattrs.hidden.snapshots = {};
-    gattrs.hidden.snapshots[name] = (await this.bufferP()).toString("base64");
-    return this.gattrsF.set({ json: gattrs });
+    const snaps: SnapshotFile = await this.snapshotF.jsonP();
+    const buffer = await this.bufferP();
+    const gz = await gzip(buffer);
+    const gzbase64 = gz.toString("base64");
+    const snap: Snapshot = {
+      name,
+      ts: Date.now(),
+      gzbase64,
+    };
+    snaps[name] = snap;
+    return this.snapshotF.set({ json: snaps });
   };
-  snapshotGet = async (name: string) => {
-    const gattrs = await this.gattrsF.jsonP();
-    const snap64 = gattrs?.hidden?.snapshots?.[name];
-    if (!snap64) {
-      throw stepErr(Error(`Snapshot not found: ${name}`), "F:snapshotRestore", {
-        snap64,
+  snapshotGet = async (
+    name: string,
+  ): Promise<{
+    get buffer(): Buffer;
+    get text(): string;
+    get json(): anyOk;
+  }> => {
+    try {
+      const snaps = await this.snapshotF.jsonP();
+      const snap = snaps[name];
+      if (!snap) {
+        throw stepErr(Error(`Snapshot not found`), "read");
+      }
+      const gz = Buffer.from(snap.gzbase64, "base64");
+      const buffer = await gunzip(gz);
+      const res = {
+        get buffer() {
+          return buffer;
+        },
+        get text() {
+          try {
+            return buffer.toString("utf-8");
+          } catch (e) {
+            throw stepErr(e, "F.snapshotGet.text");
+          }
+        },
+        get json() {
+          try {
+            return JSON.parse(res.text);
+          } catch (e) {
+            throw stepErr(e, "F.snapshotGet.json");
+          }
+        },
+      };
+      return res;
+    } catch (e: anyOk) {
+      throw stepErr(e, "F:snapshotGet", {
+        snapName: name,
+        snapPath: this._snapshotPath,
       });
     }
-    const snap = Buffer.from(snap64, "base64");
-    const res = {
-      buffer: snap,
-      get text() {
-        return snap.toString("utf-8");
-      },
-      get json() {
-        return JSON.parse(res.text);
-      },
-    };
-    return res;
   };
   snapshotRestore = async (name: string) => {
-    const snap = await this.snapshotGet(name);
-    return this.set({ buffer: snap.buffer });
+    try {
+      const snap = await this.snapshotGet(name);
+      return this.set({ buffer: snap.buffer });
+    } catch (e: anyOk) {
+      throw stepErr(e, "F:snapshotRestore");
+    }
   };
+  static snapshotPurge = async (opts: SMM = {}) => {
+    await fs.purgeDir(File._snapshotDir, opts).catch((e) => {
+      throw stepErr(e, "F:snapshotPurge");
+    });
+  };
+  get snapshotF() {
+    if (this._snapshotFVal) return this._snapshotFVal;
+    this._snapshotFVal = new File<SnapshotFile, anyOk>(this._snapshotPath);
+    return this._snapshotFVal;
+  }
+  private _snapshotFVal?: File<SnapshotFile, anyOk>;
+  static get _snapshotDir() {
+    return `${fs.home}/.bldr/snapshots`;
+  }
+  private get _snapshotPath() {
+    return File._snapshotDir + "/" + strFileEscape(this.path.replace(fs.home, "").slice(1), ".") + ".backups.json";
+  }
+
+  get size() {
+    return this.stat.size;
+  }
+  sizeP() {
+    return this.statP().then((s) => s.size);
+  }
 
   private _statVal?: fsN.Stats;
   get stat() {
@@ -1053,9 +1134,9 @@ class File<
   };
 
   get stream() {
-    let stream: Readable;
+    let stream: streamN.Readable;
     if (this._bufferVal) {
-      stream = Readable.from(this._bufferVal);
+      stream = streamN.Readable.from(this._bufferVal);
     } else {
       stream = fsN.createReadStream(this.path);
     }
@@ -1064,8 +1145,7 @@ class File<
 
   /** gets text from buffer (or cache if buffer is cached) */
   get text() {
-    const text = this.buffer.toString("utf-8"); // note: toString="" for empty files
-    return text;
+    return this._textVal || (this._textVal = this.buffer.toString("utf-8"));
   }
   /** get text from buffer (or cache if buffer is cached) using a promise */
   textP = async () => {
@@ -1073,13 +1153,16 @@ class File<
     return this.text;
   };
   set text(to: string) {
-    this.buffer = to;
+    this._textVal = to;
+    this.textDirty = true;
   }
   /** A setter that returns this, for chaining */
   textSet(to: string) {
     this.text = to;
     return this;
   }
+  private textDirty = false;
+  private _textVal?: string;
 
   /**
    * gets/sets xattrs (extended attributes) to a file
@@ -1094,7 +1177,7 @@ class File<
   get xattrs() {
     if (!this._xattrs) {
       try {
-        const xattrsRaw = childProcessN.execFileSync(`xattr -l ${this.path}`);
+        const xattrsRaw = sh.execSync(`xattr -l ${this.path}`);
         this._xattrs = xattrsRaw
           .toString()
           .split("\n")
@@ -1161,12 +1244,13 @@ class File<
     }
   };
 }
-interface FileGattrsHidden {
-  hidden?: {
-    snapshots?: {
-      [name: string]: string;
-    };
-  };
+interface SnapshotFile {
+  [name: string]: Snapshot;
+}
+interface Snapshot {
+  name: string;
+  ts: number;
+  gzbase64: string;
 }
 
 /** Filesystem (aka fs) - helpers */
@@ -1332,44 +1416,11 @@ export class fs {
     return root;
   });
 
-  static fileURLToPath = urlNode.fileURLToPath;
+  static fileURLToPath = urlN.fileURLToPath;
 
   /** get's a file object */
-  static get = <JSON, GHOSTS>(path: string) => {
-    let file = fs._getCache.get(path);
-    if (!file) {
-      file = new File(path);
-      fs._getCache.set(path, file);
-    }
-    return file as File<JSON, GHOSTS>;
-  };
-  private static _getCache = new Map<string, File<anyOk, anyOk>>();
-
-  /** get package.json file */
-  static getPkgJsonFile = (pathToPkgOrPkgJson: string) => {
-    let path = pathToPkgOrPkgJson;
-    if (!path.endsWith("package.json")) path = `${path}/package.json`;
-    const jsonF = fs.get<PkgJsonFields, never>(path);
-    const pkgF = O.ass(jsonF, {
-      /** Disable install and build hooks */
-      disableHooks: async () => {
-        if (jsonF.json.scripts) {
-          const next = { ...jsonF.json };
-          O.replKeys<PkgJsonFields>(next.scripts!, /^(preinstall|postinstall|prebuild|postbuild)/, `//$1`, true);
-          await jsonF.set({ json: next });
-        }
-      },
-      /** re-enable install and build hooks which were disabled */
-      enableHooks: async () => {
-        if (jsonF.json.scripts) {
-          const next = { ...jsonF.json };
-          O.replKeys(next.scripts!, /^(\/\/)(preinstall|postinstall|prebuild|postbuild)/, `$2`, true);
-          await jsonF.set({ json: next });
-        }
-      },
-    });
-    return pkgF;
-  };
+  static get = File.get;
+  static getPkgJsonFile = File.getPkgJsonFile;
 
   static home = osN.homedir();
 
@@ -1473,40 +1524,61 @@ export class fs {
 
   static resolve = pathN.resolve;
 
-  /** wrapper for fs.rm with defaults and filters */
+  /** wrapper for fs.rm and unlink with defaults and exception handling */
   static rm = async (path: string, opts: Parameters<(typeof fsN.promises)["rm"]>[1] = {}) => {
     const { force, recursive = true } = opts;
     try {
-      const stat = await fs.stat(path).catch(() => {});
-      if (!stat) {
-        if (force) return;
-        throw stepErr(Error(`frm:path not found`), "stat", { rmPath: path });
-      }
+      const stat = await fs.stat(path);
       const isFile = stat.isFile();
       if (isFile) {
-        return fsN.promises.unlink(path).catch((e) => {
-          throw stepErr(e, "unlink: no such file", { rmPath: path });
-        });
+        await fsN.promises.unlink(path);
       } else {
-        return fsN.promises.rm(path, { force, recursive }).catch((e) => {
-          throw stepErr(e, "rm: no such file", { rmPath: path });
-        });
+        await fsN.promises.rm(path, { force, recursive });
       }
     } catch (e: anyOk) {
       if (force) {
         l5(`fs.rm->ignoring missing ${path} bc force`);
-        return;
       } else {
         throw stepErr(e, "fs.rm", { rmPath: path });
       }
     }
   };
 
-  /** gets fs.stat */
+  /** wrapper for fs.rm and unlink with defaults and exception handling */
+  static rmSync = (path: string, opts: Parameters<(typeof fsN.promises)["rm"]>[1] = {}) => {
+    const { force, recursive = true } = opts;
+    try {
+      const stat = fs.statSync(path);
+      const isFile = stat.isFile();
+      if (isFile) {
+        fsN.unlinkSync(path);
+      } else {
+        fsN.rmSync(path, { force, recursive });
+      }
+    } catch (e: anyOk) {
+      if (force) {
+        l5(`fs.rm->ignoring missing ${path} bc force`);
+      } else {
+        throw stepErr(e, "fs.rm", { rmPath: path });
+      }
+    }
+  };
+
+  /** fs.stat wrapper with better exception handling */
   static stat = async (path: string) => {
     try {
-      const stat = await fsN.promises.stat(path);
-      return stat as ReturnTypeP<typeof fsN.promises.stat> & { xattrs: Dict };
+      return fsN.promises.stat(path);
+    } catch (e) {
+      throw stepErr(Error("fsc:File not found"), "fs.stat", {
+        statPath: path,
+      });
+    }
+  };
+
+  /** fs.statSync wrapper with better exception handling */
+  static statSync = (path: string) => {
+    try {
+      return fsN.statSync(path);
     } catch (e) {
       throw stepErr(Error("fsc:File not found"), "fs.stat", {
         statPath: path,
@@ -1543,8 +1615,6 @@ export class fs {
 
 /** Shell / Process helpers aka sh */
 export class sh {
-  static _exec = utilNode.promisify(childProcessN.exec);
-
   static cmdExists = async (
     cmd: string,
     opts: {
@@ -1682,7 +1752,10 @@ export class sh {
     });
     return execP.promise;
   };
+
   static execCount = 0;
+  static execN = utilN.promisify(childProcessN.exec);
+  static execSync = childProcessN.execFileSync;
 
   static sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 }
@@ -1846,12 +1919,12 @@ export class Log {
   lFinish = async (opts: { err?: anyOk } = {}) => {
     const { err } = opts;
     if (err) this.lErrCtx(err);
-    this.l2(`LOG->${Log.file}`);
+    this.l1(`LOG: ${Log.file.replace(fs.home, "~")}`);
     await Log.waitForlogFileSettled();
   };
 
   static waitForlogFileSettled = async () => {
-    await pAll(Log.appendLogFilePromises);
+    await P.allF(Log.appendLogFilePromises);
   };
 }
 export const logDefault = new Log({ prefix: "" });
@@ -1888,6 +1961,8 @@ export class Time {
 
     return str || "0s"; // Return "0 seconds" for no difference
   };
+
+  static iso = () => new Date().toISOString();
 }
 
 export class Tree {

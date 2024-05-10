@@ -115,11 +115,13 @@ export class Main {
     "--buildCache": Boolean,
     /** ws + yarn */
     "--hard": Boolean,
+    /** clean pkg metastores where we store stats and misc info about packages */
+    "--metaStore": Boolean,
     /** Whether to rimraf the entire node_modules folders */
     "--nodeModulesAll": Boolean,
     /** Whether to rimraf the crosslinked node_modules folders */
     "--nodeModuleCrosslinks": Boolean,
-    /** Clean the workspace: bld artifacts and nodeModuleCrosslinks */
+    /** Clean the workspace: bld artifacts, metastore, and nodeModuleCrosslinks */
     "--ws": Boolean,
     /** clean yarn caches: is slow fyi */
     "--yarn": Boolean,
@@ -247,7 +249,7 @@ export class Main {
   private bootstrap = async () => {
     const pkgs = await this.getPkgs({ usageOnEmpty: true });
     for (const pkg of pkgs) {
-      await pkg.bootstrap({ noCache: this.args["--no-cache"] || false });
+      await pkg.bootstrapMain({ noCache: this.args["--no-cache"] || false });
     }
   };
 
@@ -269,6 +271,7 @@ export class Main {
       includeDependencies: args["--include-dependencies"],
       includeDependents: args["--include-dependents"],
       includes: args["--all"] ? undefined : await this.getPkgPaths({ usageOnEmpty: true }),
+      metaStore: args["--metaStore"],
       nodeModulesAll: args["--nodeModulesAll"],
       nodeModuleCrosslinks: args["--nodeModuleCrosslinks"],
       ws: args["--ws"],
@@ -293,30 +296,35 @@ export class Main {
 
   private info = async () => {
     const pkg = await this.getPkg();
-    const stats = pkg.bldArtifactFile.exists ? pkg.bldArtifactFile.gattrs.stats : undefined;
+    const stats = pkg.pkgMetaFile.exists ? pkg.pkgMetaFile.json.stats : undefined;
+
+    const metaPathNice = pkg.pkgMetaFile.path.replace(fs.home, "~");
     const bldPathNice = pkg.bldArtifactFile.path.replace(fs.home, "~");
     const attrsPath = pkg.bldArtifactFile.gattrsF.path.replace(fs.home, "~");
     const bootstrapped = fs.exists(`${pkg.pathAbs}/node_modules`);
     const isFresh = await pkg.bldArtifactIsUpToDate();
-    logDefault.l1(`:INFO: ${pkg.name} ${pkg.json.version} ${pkg.pathRel}`);
-    logDefault.l1(`  - build artifact:`);
-    logDefault.l1(`    - tgz: ${bldPathNice}`);
-    logDefault.l1(`    - attrs: ${attrsPath}`);
-    logDefault.l1(`    - bootstrapped: ${bootstrapped ? "yes" : "no"}`);
-    logDefault.l1(`    - built: ${pkg.bldArtifactFile.exists ? "yes" : "no"}`);
-    logDefault.l1(`    - build is fresh: ${isFresh ? "yes" : "no"}`);
-
-    const bootstrapTimes = stats?.bootstrapTimes?.map((t) => Time.diff(t)).join(", ") || "n/a";
-    logDefault.l1(`  - install times: ${bootstrapTimes}`);
-    const buildTimes = stats?.buildTimes?.map((t) => Time.diff(t)).join(", ") || "n/a";
-    logDefault.l1(`  - build times: ${buildTimes}`);
-    const buildSizes = stats?.buildSizes?.map((s) => `${s / (1024 * 1024)}MB`).join(", ") || "n/a";
-    logDefault.l1(`  - build sizes: ${buildSizes}`);
-
+    const buildTimes = stats?.buildTimes?.map((t) => Time.diff(0, t)).join(", ") || "n/a";
+    const buildSizes = stats?.buildSizes?.map((s) => `${+(s / 1024).toFixed(1)}kB`).join(", ") || "n/a";
+    const bootstrapTimes = stats?.bootstrapTimes?.map((t) => Time.diff(0, t)).join(", ") || "n/a";
     const caches = (await pkg.bldArtifactCacheList()).map((c) => c.replace(fs.home, "~"));
-    logDefault.l1(`  - caches: ${caches.length ? "" : "none"}`);
-    caches.forEach((c) => logDefault.l1(`      ${c}`));
-    await this.tree({ embedded: true });
+
+    logDefault.l1([
+      ``,
+      `INFO ${pkg.name} ${pkg.json.version} ${pkg.pathRel}`,
+      ``,
+      `  - metafile: ${metaPathNice}`,
+      `  - tgz: ${bldPathNice}`,
+      `  - attrs: ${attrsPath}`,
+      `  - bootstrap times: ${bootstrapTimes}`,
+      `  - bootstrapped: ${bootstrapped ? "yes" : "no"}`,
+      `  - built: ${pkg.bldArtifactFile.exists ? "yes" : "no"}`,
+      `  - build is fresh: ${isFresh ? "yes" : "no"}`,
+      `  - build times: ${buildTimes}`,
+      `  - build sizes: ${buildSizes}`,
+      `  - caches: ${caches.length ? "" : "none"}`,
+      ...caches.map((c) => `    ${c}`),
+      ``,
+    ]);
   };
 
   private tree = async (opts: { embedded?: boolean } = {}) => {
@@ -344,26 +352,26 @@ export class Main {
 
   private pkgJsonPreinstall = async () => {
     const pkg = await this.getPkg();
-    await pkg.pkgJsonPreinstallHook({
+    await pkg.pkgJsonPreinstall({
       noCache: this.args["--no-cache"] || false,
     });
   };
 
   private pkgJsonPostinstall = async () => {
     const pkg = await this.getPkg();
-    await pkg.pkgJsonPostinstallHook();
+    await pkg.pkgJsonPostinstall();
   };
 
   private pkgJsonPrebuild = async () => {
     const pkg = await this.getPkg();
-    await pkg.pkgJsonPrebuildHook({
+    await pkg.pkgJsonPrebuild({
       noCache: this.args["--no-cache"] || false,
     });
   };
 
   private pkgJsonPostbuild = async () => {
     const pkg = await this.getPkg();
-    await pkg.pkgJsonPostbuildHook();
+    await pkg.pkgJsonPostbuild();
   };
 
   //==============================================================================//

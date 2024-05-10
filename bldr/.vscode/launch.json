@@ -16,7 +16,7 @@
       "env": {
         "LOG": "1"
       },
-      "args": ["build", "react-app"]
+      "args": ["build", "lib3"]
       // "args": ["clean", "--all", "--ws", "--buildCache"]
     },
     {
