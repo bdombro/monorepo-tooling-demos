@@ -14,10 +14,24 @@
       "stopOnEntry": false,
       "watchMode": false,
       "env": {
-        "LOG": "1"
+        "LOG": "2"
       },
-      "args": ["build", "react-app"]
+      "args": ["build", "lib3"]
       // "args": ["clean", "--all", "--ws", "--buildCache"]
+    },
+    {
+      "name": "bldr:clean",
+      "type": "bun",
+      "internalConsoleOptions": "neverOpen",
+      "request": "launch",
+      "program": "${workspaceFolder}/bldr/src/bldr-cli.ts",
+      "cwd": "${workspaceFolder}",
+      "stopOnEntry": false,
+      "watchMode": false,
+      "env": {
+        "LOG": "2"
+      },
+      "args": ["clean", "--all", "--ws", "--buildCache"]
     },
     {
       "name": "bldr:yarn",
@@ -29,7 +43,7 @@
       "stopOnEntry": false,
       "watchMode": false,
       "env": {
-        "LOG": "1"
+        "LOG": "2"
       },
       "args": ["install"]
     },
@@ -43,7 +57,7 @@
       "stopOnEntry": false,
       "watchMode": false,
       "env": {
-        "LOG": "1",
+        "LOG": "2",
         "NPM_TOKEN": "${env:NPM_TOKEN}",
       },
       // "envFile": "${workspaceFolder}/.envrc",
@@ -62,10 +76,11 @@
       "stopOnEntry": false,
       "watchMode": false,
       "env": {
-        "LOG": "1",
+        "LOG": "2",
         "NPM_TOKEN": "${env:NPM_TOKEN}",
       },
-      "args": ["clean", "city", "--include-dependencies", "--ws", "--buildCache"],
+      // "args": ["clean", "city", "--include-dependencies", "--ws", "--buildCache"],
+      "args": ["clean", "city", "--include-dependencies", "--include-dependents", "--ws", "--buildCache"],
     },
     // To attach, just start this before running bun in a Javascript debug terminal
     {

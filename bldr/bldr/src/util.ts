@@ -12,10 +12,11 @@ import zlibN from "node:zlib";
 
 import equals from "fast-deep-equal";
 import { mergeAndConcat } from "merge-anything";
+import { stringify } from "node:querystring";
 
 export const UTIL_ENV = {
   ci: process.env["CI"] === "1" ? true : false,
-  logLevel: Number(process.env["LOG"] ?? 1),
+  logLevel: Number(process.env["LOG"] ?? 2),
 };
 
 /** Aliases and misc */
@@ -77,7 +78,11 @@ type Cachified<T extends Fnc> = (
  * f(1, { bustCache: true }) // 2, but recalculated
  * f(1, { setCache: 3 }) // sets the cache to 3 and returns it
  */
-export function cachify<T extends Fnc>(fn: T): Cachified<T> {
+export function cachify<T extends Fnc>(
+  fn: T,
+  /** give this cached fnc a name for tracking usage */
+  name?: string,
+): Cachified<T> {
   const cache: Map<anyOk, anyOk> = new Map();
   const cached = (...args: anyOk[]) => {
     const maybeOpts = args.at(-1);
@@ -86,6 +91,16 @@ export function cachify<T extends Fnc>(fn: T): Cachified<T> {
       args.pop();
     }
     const key = JSON.stringify(args?.length ? args : "none");
+    if (name) {
+      // uncomment this for debugging/analytics
+      // ldbg(
+      //   `cachify: ${name} ` +
+      //     strCondenseObj({
+      //       args,
+      //       cacheSize: cache.size,
+      //     }),
+      // );
+    }
     if (maybeOpts?.setCache) {
       cache.set(key, Promise.resolve(maybeOpts.setCache));
       return maybeOpts.setCache;
@@ -408,7 +423,11 @@ export const str = (o: anyOk, spaces?: number, opts: { printUndefineds?: boolean
   );
 };
 
-export const str2 = (o: anyOk): string => {
+/** Alias for localCompare, useful for sorting alphabetically */
+export const strCompare = (a: string, b: string) => a.localeCompare(b);
+
+/** a condensing stringify fnc for an object */
+export const strCondenseObj = (o: anyOk): string => {
   if (!o) return "";
   let s = str(o);
   if (s === "{}") return s;
@@ -424,10 +443,8 @@ export const str2 = (o: anyOk): string => {
   return s;
 };
 
-/** Alias for localCompare, useful for sorting alphabetically */
-export const strCompare = (a: string, b: string) => a.localeCompare(b);
-
-export const strCondense = (s: string, opts: { removeStyle?: boolean } = {}): string => {
+/** a condensing fnc for a blob of text with multiple new lines. Trims whitespace, new lines, ansi escapes */
+export const strCondenseText = (s: string, opts: { removeStyle?: boolean } = {}): string => {
   const { removeStyle = true } = opts;
   s = s
     .split("\n")
@@ -437,6 +454,11 @@ export const strCondense = (s: string, opts: { removeStyle?: boolean } = {}): st
   if (removeStyle) s = s.replace(strAnsiEscapeExp, "");
   return s;
 };
+
+/** strips ansi escape sequences from a string -- useful for converting console log strs to clean strings */
+export const strNoAnsiEscapes = (s: string) => s.replace(strAnsiEscapeExp, "");
+/** alias for strNoAnsiEscapes */
+export const strNoColors = strNoAnsiEscapes;
 
 export const strFileEscape = (s: string, replChar = "-") => s.replace(/[^.a-zA-Z0-9]/g, replChar).replace(/_+/g, "_");
 
@@ -683,20 +705,22 @@ class File<
     const jsonF = fs.get<PkgJsonFields, never>(path);
     const pkgF = O.ass(jsonF, {
       /** Disable install and build hooks */
-      disableHooks: async () => {
+      disableHooks: () => {
         if (jsonF.json.scripts) {
           const next = { ...jsonF.json };
           O.replKeys<PkgJsonFields>(next.scripts!, /^(preinstall|postinstall|prebuild|postbuild)/, `//$1`, true);
-          await jsonF.set({ json: next });
+          jsonF.json = next;
         }
+        return jsonF;
       },
       /** re-enable install and build hooks which were disabled */
-      enableHooks: async () => {
+      enableHooks: () => {
         if (jsonF.json.scripts) {
           const next = { ...jsonF.json };
           O.replKeys(next.scripts!, /^(\/\/)(preinstall|postinstall|prebuild|postbuild)/, `$2`, true);
-          await jsonF.set({ json: next });
+          jsonF.json = next;
         }
+        return jsonF;
       },
     });
     return pkgF;
@@ -1678,13 +1702,13 @@ export class sh {
     const id = (sh.execCount = (sh.execCount ?? 0) + 1);
     const { logFilter = () => true, printOutput, rawOutput, silent, throws = true, verbose, wd = process.cwd() } = opts;
 
-    let _log1 = l1;
+    let _log3 = l3;
     let _log4 = l4;
     if (verbose) {
-      _log1 = _log4 = l1;
+      _log3 = _log4 = l2;
     }
     if (silent) {
-      _log1 = _log4 = l9;
+      _log3 = _log4 = l9;
     }
 
     const { prefix = `sh:${id}:` } = opts;
@@ -1698,12 +1722,15 @@ export class sh {
       outWasLoggedToConsole = true;
     } else if (silent) {
       _logOut = l9;
-    } else if (verbose || printOutput) {
-      _logOut = l1;
+    } else if (verbose) {
+      _logOut = l2;
+      outWasLoggedToConsole = true;
+    } else if (printOutput) {
+      _logOut = l2;
       outWasLoggedToConsole = true;
     } else {
-      _logOut = l4;
-      outWasLoggedToConsole = logDefault.logLevel >= 4;
+      _logOut = l3;
+      outWasLoggedToConsole = logDefault.logLevel >= 3;
     }
     let allout = "";
     const logOut = (text: string) => {
@@ -1716,8 +1743,7 @@ export class sh {
         .split("\n")
         .filter(logFilter)
         .map((l) => {
-          l = l.trim();
-          l = l.replace(process.cwd(), "wd:");
+          l = l.trim().replace(strAnsiEscapeExp, "").replace(process.cwd(), "wd:");
           return l;
         })
         .filter(Boolean);
@@ -1750,10 +1776,10 @@ export class sh {
               .join("\n") + "\n",
           );
         }
-        _log1(`${prefix} ERROR!`);
-        _log1(`${prefix} cmd='${strTrim(cmd, 200)}'`);
-        _log1(`${prefix} wd=${wd}`);
-        _log1(`${prefix} code=${code}`);
+        _log3(`${prefix} ERROR!`);
+        _log3(`${prefix} cmd='${strTrim(cmd, 200)}'`);
+        _log3(`${prefix} wd=${wd}`);
+        _log3(`${prefix} code=${code}`);
 
         const err = O.ass(Error(`sh:${id}->nonzero-return`), {
           cmd: strTrim(cmd, 200),
@@ -1793,7 +1819,7 @@ export class Log {
   static appendLogFilePromises: Promise<void>[] = [];
   static file = `${fs.tmpDir}/run.log`;
 
-  public color = Log.gray;
+  public colorDefault = Log.gray;
   public logLevel = UTIL_ENV.logLevel;
   public prefix: string;
   public showLogLevels: boolean;
@@ -1807,6 +1833,13 @@ export class Log {
   }
 
   /**
+   * creates a log function with level = n
+   *
+   * - logs to console and lazily to a file
+   * - provides a finish method to wait for logs to finish and print the log file path
+   * - has options to control the look and feel
+   * - has static vars for colors to for console
+   *
    * reserved numbers:
    * 0: don't decorate at all, like if were calling another library that has its
    *    own logging decorations
@@ -1840,51 +1873,30 @@ export class Log {
 
       // ts = yyyy:hh:mm:ss:msms -> ie 2024:15:12:41.03
       const ts = new Date().toISOString().slice(0, -2);
+      const tsNoYear = ts.slice(11);
+
+      const txt = Log.stringify(...args);
+
+      const logFileTxt = `${tsNoYear} L${n} ${strNoColors(txt)} + "\n"`;
+      Log.appendLogFilePromises.push(fs.append(Log.file, logFileTxt)); // be lazy about it
 
       // skip logging to console if the log message level is higher than the log level
       if (this.logLevel >= n) {
-        const argsExtra = args;
-        if (Is.str(args[0])) {
-          if (args[0].match(/INFO/)) args[0] = Log.cyan(args[0]);
-          else if (args[0].match(/ERROR/)) args[0] = Log.red(args[0]);
-          else {
-            for (let i = 0; i < args.length; i++) {
-              if (Is.str(args[i])) {
-                args[i] = this.color(args[i]);
-              }
-            }
-          }
-        }
-        const tsNoYear = ts.slice(11);
+        let conTxt = txt;
+
         if (this.showLogLevels) {
-          argsExtra.unshift(`L${n}`);
+          conTxt = `L${n} ${conTxt}`;
         }
         if (this.showTimestamps) {
-          argsExtra.unshift(tsNoYear);
+          conTxt = `${tsNoYear} ${conTxt}`;
         }
-        console.log(...argsExtra);
-      }
 
-      // lazily log to file
-      let txt = "";
-      if (isErr) {
-        const lines = [];
-        // dump of the error in a the way that mimics console
-        lines.push(args[0].stack + " {");
-        lines.push(...O.ents(args[0]).map(([k, v]) => `  ${k}: ${v}`));
-        lines.push("}");
-        txt = lines.join("\n") + "\n";
-      } else {
-        const lines = [];
-        lines.push(`${ts} L${n}`);
-        const hasObjs = args.some((a: anyOk[]) => !Is.scalar(a));
-        if (hasObjs) lines.push(...args.map((a: anyOk) => (Is.scalar(a) ? a : str(a))));
-        else lines[0] += ` ${args.join(" ")}`;
-        txt = lines.join(" ") + "\n";
-      }
-      Log.appendLogFilePromises.push(fs.append(Log.file, txt)); // be lazy about it
+        if ((n === 1 && this.logLevel > 1) || txt.includes("INFO")) conTxt = Log.cyan(conTxt);
+        else if (conTxt.includes("ERROR")) conTxt = Log.red(conTxt);
+        else conTxt = this.colorDefault(conTxt);
 
-      return args;
+        console.log(conTxt);
+      }
 
       // end of logFnc
     };
@@ -1917,27 +1929,52 @@ export class Log {
   l9 = (...args: anyOk) => {
     return this.logn(9)(...args);
   };
+  /** Prints in color for easy finding in debugging  */
+  lerr = (err: anyOk) => {
+    console.log(err);
 
-  lErrCtx = (e: anyOk) => {
-    this.l1(e);
-    this.l1(`:ERROR: ${e.message}`);
-    this.l1(
-      `:ERROR:CTX->${str(
-        {
-          step: `${e?.step ?? "unknown"}`,
-          ...O.omit(e, ["message", "originalColumn", "originalLine", "stack"]),
-        },
-        2,
-        { printUndefineds: true },
-      ).replace(/"/g, "")}`,
-    );
+    const logTxt = `ERROR-CTX->${str(
+      {
+        message: err.message,
+        breadcrumbs: `${err?.step ?? "unknown"}`,
+        ...O.omit(err, ["message", "originalColumn", "originalLine", "step"]),
+        stack: err.stack,
+      },
+      2,
+      { printUndefineds: true },
+    )}
+      `;
+    logDefault.l1(Log.red(logTxt));
+  };
+  /** Prints in color for easy finding in debugging  */
+  lwarn = (...args: anyOk) => {
+    const txt = Log.stringify(...args);
+    return this.logn(1)(Log.yellow(txt));
+  };
+  /** Prints in color for easy finding in debugging  */
+  ldbg = (...args: anyOk) => {
+    const txt = Log.stringify(...args);
+    return this.logn(1)(Log.magenta(txt));
   };
 
-  lFinish = async (opts: { err?: anyOk; printLogfile?: boolean } = {}) => {
-    const { err, printLogfile = true } = opts;
-    if (err) this.lErrCtx(err);
-    if (printLogfile) this.l1(`LOG: ${Log.file.replace(fs.home, "~")}`);
+  lFinish = async (opts: { err?: anyOk } = {}) => {
     await Log.waitForlogFileSettled();
+    const { err } = opts;
+    if (err) this.lerr(err);
+  };
+
+  /** converts arbitrary args to a string */
+  static stringify = (...args: anyOk[]) => {
+    let txt = "";
+    const hasObjs = args.some((a: anyOk[]) => !Is.scalar(a));
+    if (hasObjs) {
+      const lines = [];
+      lines.push(...args.map((a: anyOk) => (Is.scalar(a) ? a : str(a))));
+      txt = " " + lines.join(" ") + "\n";
+    } else {
+      txt += args.join(" ");
+    }
+    return txt;
   };
 
   static waitForlogFileSettled = async () => {
@@ -1953,7 +1990,9 @@ export const l3 = logDefault.l3;
 export const l4 = logDefault.l4;
 export const l5 = logDefault.l5;
 export const l9 = logDefault.l9;
-export const logErrCtx = logDefault.lErrCtx;
+export const ldbg = logDefault.ldbg;
+export const lerr = logDefault.lerr;
+export const lwarn = logDefault.lwarn;
 export const logFinish = logDefault.lFinish;
 
 export class Time {
@@ -2081,20 +2120,34 @@ export class Yarn {
           wd: wsRoot,
         });
       } else {
-        for (const inc of pkgNames) {
-          if (inc.includes("*")) {
+        for (const pkgName of pkgNames) {
+          if (pkgName.includes("*")) {
             throw stepErr(Error(`Glob not supported`), "cleanYarnCache", {
-              inc,
+              inc: pkgName,
             });
           }
-          await sh.exec(`yarn cache clean ${inc}`, { wd: wsRoot });
-          await sh.exec(
-            `find $(yarn cache dir)/.tmp -name package.json -exec grep -sl ${inc} {} \\; ` +
-              `| xargs dirname | xargs rm -rf`,
-            {
-              wd: wsRoot,
-            },
-          );
+          await sh.exec(`yarn cache clean ${pkgName}`, { prefix: "YARN", wd: wsRoot });
+
+          // find wasn't able to find `yarn cache dir` for some reason so semi-hardcoding. Is faster too.
+          // const cacheDir = `$(yarn cache dir)`;
+          const cacheDir = `${fs.home}/Library/Caches/Yarn/v6`;
+          await sh
+            .exec(
+              // `find $(yarn cache dir)/.tmp -name package.json -exec grep -sl ${pkgName} {} \\; ` +
+              `find ${cacheDir}/.tmp -name package.json -exec grep -sl ${pkgName} {} \\; ` +
+                `| xargs dirname | xargs rm -rf`,
+              {
+                prefix: "YARN",
+                silent: UTIL_ENV.logLevel < 4,
+                wd: wsRoot,
+              },
+            )
+            .then((out) => {
+              if (out.includes("No such file or directory"))
+                throw stepErr(Error(`find could not find $(yarn cache dir)/.tmp`), "cleanYarnCache", {
+                  findStdOut: out,
+                });
+            });
         }
       }
 

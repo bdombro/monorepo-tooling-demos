@@ -35,17 +35,8 @@ const __filename = fs.fileURLToPath(import.meta.url);
 // const __dirname = fs.dirname(__filename);
 const isCalledFromCli = import.meta.url === `file://${process.argv[1]}`;
 
-const log = new Log({ prefix: "BLDR" });
-// const l0 = log.l0;
-const l1 = log.l1;
-const l2 = log.l2;
-const l3 = log.l3;
-const l4 = log.l4;
-// const l5 = log.l5;
-// const l9 = log.l9;
-
-export const bldr_ENV = {
-  logLevel: Number(process.env["LOG"] ?? 1),
+export const BLDR_ENV = {
+  logLevel: Number(process.env["LOG"] ?? 2),
   ci: process.env["CI"] === "1" ? true : false,
 };
 
@@ -146,20 +137,20 @@ export class Main {
 
     if (!this.action) usage();
 
-    bldr_ENV.ci = UTIL_ENV.ci = args["--ci"] && ["1", "true"].includes(args["--ci"]) ? true : bldr_ENV.ci;
-    bldr_ENV.logLevel = UTIL_ENV.logLevel =
-      (bldr_ENV.logLevel > 1 && bldr_ENV.logLevel) || args["--loglevel"] || (args["--verbose"] ?? 0) + 1;
+    BLDR_ENV.ci = UTIL_ENV.ci = args["--ci"] && ["1", "true"].includes(args["--ci"]) ? true : BLDR_ENV.ci;
+    BLDR_ENV.logLevel = UTIL_ENV.logLevel =
+      (BLDR_ENV.logLevel > 1 && BLDR_ENV.logLevel) || args["--loglevel"] || (args["--verbose"] ?? 0) + 2;
 
-    if (args["--show-timestamps"]) log.showTimestamps = logDefault.showTimestamps = true;
-    if (args["--show-loglevels"]) log.showLogLevels = logDefault.showLogLevels = true;
+    if (args["--show-timestamps"]) Bldr.log.showTimestamps = logDefault.showTimestamps = true;
+    if (args["--show-loglevels"]) Bldr.log.showLogLevels = logDefault.showLogLevels = true;
 
     const start = new Date();
 
     let printEndTxt = true;
 
-    l2(`:cmd ${allArgs.join(" ")} at ${bldr_ENV.ci ? "" : start.toISOString()}`);
+    Bldr.l3(`:cmd ${allArgs.join(" ")} at ${BLDR_ENV.ci ? "" : start.toISOString()}`);
 
-    l4(`: ENV CI=${bldr_ENV.ci} logLevel=${bldr_ENV.logLevel}`);
+    Bldr.l4(`: ENV CI=${BLDR_ENV.ci} logLevel=${BLDR_ENV.logLevel}`);
 
     try {
       switch (this.action) {
@@ -223,17 +214,17 @@ export class Main {
           break;
         }
         default:
-          l1("Invalid action\n");
+          Bldr.lerr("ERROR: Invalid action\n");
           usage(1);
       }
     } catch (err: anyOk) {
-      await log.lFinish({ err });
+      await Bldr.lFinish({ err });
       process.exit(1);
     }
 
-    await log.lFinish({ printLogfile: printEndTxt });
+    await Bldr.lFinish();
     if (printEndTxt) {
-      logDefault.l1(`-- done in ${Time.diff(start)} --`);
+      logDefault.l2(`-- done in ${Time.diff(start)} --`);
     }
   };
 
@@ -255,9 +246,10 @@ export class Main {
 
   private bootstrap = async () => {
     const pkgs = await this.getPkgs({ usageOnEmpty: true });
-    for (const pkg of pkgs) {
-      await pkg.bootstrapMain({ noCache: this.args["--no-cache"] || false });
-    }
+    await Bldr.bootstrap({
+      noCache: this.args["--no-cache"] || false,
+      pkgs,
+    });
   };
 
   private build = async () => {
@@ -293,7 +285,7 @@ export class Main {
     });
     const cmd = this.argsAfterDashdash.join(" ");
     if (!cmd) {
-      l1(`:ERROR: Specify command after --`);
+      lerr(`:ERROR: Specify command after --`);
       this.usage(1);
     }
     await Bldr.exec(pkgs, cmd, {
@@ -315,10 +307,8 @@ export class Main {
     const bootstrapTimes = stats?.bootstrapTimes?.map((t) => Time.diff(0, t)).join(", ") || "n/a";
     const caches = (await pkg.bldArtifactCacheList()).map((c) => c.replace(fs.home, "~"));
 
-    logDefault.l1([
-      ``,
-      `INFO ${pkg.name}`,
-      ``,
+    logDefault.l1(`\nINFO ${pkg.name}\n`);
+    logDefault.l2([
       `  - path: ${pkg.pathRel}`,
       `  - metafile: ${metaPathNice}`,
       `  - tgz: ${bldPathNice}`,
@@ -338,7 +328,7 @@ export class Main {
   private buildAttributes = async () => {
     const pkg = await this.getPkg();
     logDefault.l1(`\nINFO:SRC-FILES ${pkg.name}\n`);
-    logDefault.l1(str(await pkg.bldArtifactAttrsGet(), 2));
+    logDefault.l2(str(await pkg.bldArtifactAttrsGet(), 2));
   };
 
   private tree = async (opts: { embedded?: boolean } = {}) => {
@@ -350,7 +340,7 @@ export class Main {
       excludes: this.excludes,
       print: false,
     });
-    logDefault.l1(tree);
+    logDefault.l2(tree);
   };
 
   private sync = async () => {
@@ -378,9 +368,7 @@ export class Main {
 
   private pkgJsonPrebuild = async () => {
     const pkg = await this.getPkg();
-    await pkg.pkgJsonPrebuild({
-      noCache: this.args["--no-cache"] || false,
-    });
+    await pkg.pkgJsonPrebuild();
   };
 
   private pkgJsonPostbuild = async () => {
@@ -398,7 +386,7 @@ export class Main {
   private getPkg = async (): Promise<Pkg> => {
     const path = (await this.getPkgPaths())?.[0];
     if (!path) {
-      logDefault.l1(`ERROR: No package specified`);
+      logDefault.lerr(`ERROR: No package specified`);
       this.usage();
     }
     const pkg = await Bldr.get(path);
@@ -418,109 +406,106 @@ export class Main {
     return pkgs as anyOk;
   };
 
-  private getPkgPaths = cachify(
-    async (opts: { excludeAfterDashDash?: boolean; usageOnEmpty?: boolean } = {}): Promise<[string, ...string[]]> => {
-      try {
-        const { excludeAfterDashDash, usageOnEmpty } = opts;
-        const inclDependencies = this.args["--include-dependencies"];
-        const inclDependents = this.args["--include-dependents"];
+  private getPkgPaths = async (
+    opts: { excludeAfterDashDash?: boolean; usageOnEmpty?: boolean } = {},
+  ): Promise<[string, ...string[]]> => {
+    try {
+      const { excludeAfterDashDash, usageOnEmpty } = opts;
+      const inclDependencies = this.args["--include-dependencies"];
+      const inclDependents = this.args["--include-dependents"];
 
-        const pkgPathsAll = await Bldr.findPkgPaths();
-        if (this.args["--all"]) return pkgPathsAll as anyOk;
+      const pkgPathsAll = await Bldr.findPkgPaths();
+      if (this.args["--all"]) return pkgPathsAll as anyOk;
 
-        let argArr = this.args._;
+      let argArr = this.args._;
 
-        if (excludeAfterDashDash) {
-          argArr = argArr.filter((a) => !this.argsAfterDashdash.includes(a));
-        }
+      if (excludeAfterDashDash) {
+        argArr = argArr.filter((a) => !this.argsAfterDashdash.includes(a));
+      }
 
-        const paths: string[] = [];
+      const paths: string[] = [];
 
-        // process each arg and add to paths array
-        for (const arg of argArr) {
-          let path = arg;
+      // process each arg and add to paths array
+      for (const arg of argArr) {
+        let path = arg;
 
-          // handle . and ./
-          if ([".", "./"].includes(path)) path = fs.basename(process.cwd());
+        // handle . and ./
+        if ([".", "./"].includes(path)) path = fs.basename(process.cwd());
 
-          // handle regex
-          if (path.startsWith("/") && path.endsWith("/")) {
-            const regex = new RegExp(path.slice(1, -1));
-            const matches = pkgPathsAll.filter((p) => p.match(regex));
-            if (!matches.length) {
-              logDefault.l1(`ERROR: No packages found for ${arg}`);
-              process.exit(1);
-            }
-            paths.push(...matches);
-            continue;
-          }
-
-          // handle if path ends with /, like packages/{pkg}/
-          if (path.endsWith("/")) path = path.slice(0, -1);
-
-          // handle globs
-          if (path.includes("*")) {
-            path = path.replace(/\*/g, ".*");
-            const matches = pkgPathsAll.filter((p) => p.match(arg));
-            if (!matches.length) {
-              logDefault.l1(`ERROR: No packages found for ${arg}`);
-              process.exit(1);
-            }
-            paths.push(...matches);
-            continue;
-          }
-
-          // finally, convert to abs path
-          path = pkgPathsAll.find((p) => p.endsWith(path)) as string;
-
-          // disallow if no package found
-          if (!path) {
-            logDefault.l1(`ERROR: No package found for ${arg}`);
+        // handle regex
+        if (path.startsWith("/") && path.endsWith("/")) {
+          const regex = new RegExp(path.slice(1, -1));
+          const matches = pkgPathsAll.filter((p) => p.match(regex));
+          if (!matches.length) {
+            logDefault.lerr(`ERROR: No packages found for ${arg}`);
             process.exit(1);
           }
-          paths.push(path);
+          paths.push(...matches);
+          continue;
         }
 
-        A.filter(paths, Boolean);
+        // handle if path ends with /, like packages/{pkg}/
+        if (path.endsWith("/")) path = path.slice(0, -1);
 
-        if (inclDependents || inclDependencies) {
-          const pkgsAll = await Bldr.find({ dependents: true });
-
-          if (inclDependencies) {
-            for (const path of paths) {
-              const pkg = pkgsAll.find((p) => p.pathAbs === path);
-              for (const d of pkg?.dependencyClsForInstall ?? []) {
-                paths.push(d.pathAbs);
-              }
-            }
+        // handle globs
+        if (path.includes("*")) {
+          path = path.replace(/\*/g, ".*");
+          const matches = pkgPathsAll.filter((p) => p.match(arg));
+          if (!matches.length) {
+            logDefault.lerr(`ERROR: No packages found for ${arg}`);
+            process.exit(1);
           }
-
-          if (inclDependents) {
-            for (const path of paths) {
-              const pkg = pkgsAll.find((p) => p.pathAbs === path);
-              for (const d of pkg?.dependentClsFlat ?? []) {
-                paths.push(d.pathAbs);
-              }
-            }
-          }
+          paths.push(...matches);
+          continue;
         }
 
-        A.dedup(paths);
-        paths.sort(strCompare);
+        // finally, convert to abs path
+        path = pkgPathsAll.find((p) => p.endsWith(path)) as string;
 
-        if (!paths.length && usageOnEmpty) {
-          logDefault.l1(`ERROR: No packages found for ${argArr.join(" ")}`);
-          this.usage(1);
+        // disallow if no package found
+        if (!path) {
+          logDefault.lerr(`ERROR: No package found for ${arg}`);
+          process.exit(1);
         }
-
-        return paths as [string, ...string[]];
-
-        // end getPkgPaths
-      } catch (e) {
-        throw stepErr(e, "getPkgPaths");
+        paths.push(path);
       }
-    },
-  );
+
+      A.filter(paths, Boolean);
+
+      if (inclDependencies && paths.length) {
+        const pkgs = await Bldr.find({ includes: paths as [string] });
+        for (const pkg of pkgs) {
+          for (const d of pkg?.dcClsForInstall ?? []) {
+            paths.push(d.pathAbs);
+          }
+        }
+      }
+
+      if (inclDependents && paths.length) {
+        const pkgsAll = await Bldr.find({ dependents: true });
+        for (const path of paths) {
+          const pkg = pkgsAll.find((p) => p.pathAbs === path);
+          for (const d of pkg?.dtClsFlat ?? []) {
+            paths.push(d.pathAbs);
+          }
+        }
+      }
+
+      A.dedup(paths);
+      paths.sort(strCompare);
+
+      if (!paths.length && usageOnEmpty) {
+        logDefault.lerr(`ERROR: No packages found for ${argArr.join(" ")}`);
+        this.usage(1);
+      }
+
+      return paths as [string, ...string[]];
+
+      // end getPkgPaths
+    } catch (e) {
+      throw stepErr(e, "getPkgPaths");
+    }
+  };
 }
 
 if (isCalledFromCli) {
