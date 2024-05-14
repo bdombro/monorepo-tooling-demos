@@ -12,7 +12,6 @@ import zlibN from "node:zlib";
 
 import equals from "fast-deep-equal";
 import { mergeAndConcat } from "merge-anything";
-import { stringify } from "node:querystring";
 
 export const UTIL_ENV = {
   ci: process.env["CI"] === "1" ? true : false,
@@ -49,6 +48,8 @@ export const A = {
     arr.push(...deduped);
     return arr;
   },
+  /** true if empty */
+  empty: (arr: anyOk[]) => arr.length === 0,
   /** filter in place */
   filter: <T>(arr: T[], cb: (v: T, i: number, arr: T[]) => boolean): T[] => {
     const filtered = arr.filter(cb);
@@ -57,8 +58,15 @@ export const A = {
     return arr;
   },
   from: Array.from,
-  /** Note: USE just .sort() instead -- sorts an array in place alphabetically */
+  /** Note: Don't use sortAlpha, USE just .sort() instead -- sorts an array in place alphabetically */
   // sortAlpha: <T extends string[]>(arr: T): T => arr.sort(strCompare),
+  /** applies a callback on an array */
+  mapInPlace: <T>(arr: T[], cb: (v: T, i: number, arr: T[]) => T): T[] => {
+    for (let i = 0; i < arr.length; i++) {
+      arr[i] = cb(arr[i], i, arr);
+    }
+    return arr;
+  },
   /** Depups an array */
   toDedup: <T>(arr: T[]): T[] => [...new Set(arr)],
   equals: <T>(a: T[], b: T[]) => a.length === b.length && a.every((v, i) => v === b[i]),
@@ -80,7 +88,7 @@ type Cachified<T extends Fnc> = (
  */
 export function cachify<T extends Fnc>(
   fn: T,
-  /** give this cached fnc a name for tracking usage */
+  /** give this cached fnc a name for debugging/tracking usage. Don't commit though bc it's noisy. */
   name?: string,
 ): Cachified<T> {
   const cache: Map<anyOk, anyOk> = new Map();
@@ -92,14 +100,13 @@ export function cachify<T extends Fnc>(
     }
     const key = JSON.stringify(args?.length ? args : "none");
     if (name) {
-      // uncomment this for debugging/analytics
-      // ldbg(
-      //   `cachify: ${name} ` +
-      //     strCondenseObj({
-      //       args,
-      //       cacheSize: cache.size,
-      //     }),
-      // );
+      ldbg(
+        `cachify: ${name} ` +
+          strCondenseObj({
+            args,
+            cacheSize: cache.size,
+          }),
+      );
     }
     if (maybeOpts?.setCache) {
       cache.set(key, Promise.resolve(maybeOpts.setCache));
@@ -187,7 +194,6 @@ export const keyBy = <T>(arr: T[], key: string) =>
     acc[item[key]] = item;
     return acc;
   }, {} as HashM<T>);
-export const keyByC = cachify(keyBy);
 
 export const md5 = (
   srcOrSrcs: (string | Buffer) | (string | Buffer)[],
@@ -253,7 +259,10 @@ export const O = {
   /** An alias for Object.entries */
   ents: ((...args: [anyOk]) => Object.entries(...args)) as ObjectConstructor["entries"],
   /** An alias for Object.fromEntries */
+  empty: (obj: anyOk) => O.keys(obj).length === 0,
   fromEnts: ((...args: [anyOk]) => Object.fromEntries(...args)) as ObjectConstructor["fromEntries"],
+  /** An alias to O.keys(o).length */
+  len: (o: anyOk) => O.keys(o).length,
   /** An alias for Object.keys with better types */
   keys: <T extends HashM<anyOk>>(obj: T): (keyof T)[] => Object.keys(obj) as anyOk,
   /** Deeply merge objects */
@@ -266,7 +275,7 @@ export const O = {
   /** Create a copy that excludes the keys specified */
   omit: <T extends HashM<anyOk>, K extends keyof T>(obj: T, omitKeys: K[]): ReadonlyNot<Omit<T, K>> => {
     const res = O.ass({}, obj);
-    omitKeys?.forEach((omk) => {
+    omitKeys.forEach((omk) => {
       if (omk in obj) delete res[omk];
     });
     return res;
@@ -336,7 +345,7 @@ export const O = {
   /** sorts an obj by key, returning the sorted copy or sorts in place if inPlace is true */
   sort: <T extends HashM<anyOk>>(obj: T, inPlace?: boolean): T => {
     const sorted = O.keys(obj)
-      .toSorted()
+      .sort()
       .reduce((result: anyOk, key) => {
         result[key] = obj[key];
         return result;
@@ -382,7 +391,18 @@ export const P = O.ass(Promise, {
     // splice bc it gets cranky otherwise
     return Promise.all(ps.splice(0, ps.length));
   }) as PromiseConstructor["all"],
-  wr: Promise.withResolvers,
+  // wr: Promise.withResolvers,
+  /** a polyfill for Promise.withResolvers bc Node 18 doesn't have it yet. */
+  wr: <ReturnT>() => {
+    let resolve: (value: ReturnT | PromiseLike<ReturnT>) => void;
+    let reject: (reason: anyOk) => void;
+    const promise = new Promise<ReturnT>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    // @ts-expect-error: complains vars aren't not resolved yet
+    return { promise, resolve, reject };
+  },
 });
 
 /**
@@ -483,7 +503,7 @@ export const strMatchMany = (strToTestAgainst: string, opts: SMM) => {
   if (includes) {
     const includesRExp: RegExp[] = [];
     includesRExp.push(...includes.filter(Is.regex));
-    const strs = includes.filter(Is.str);
+    const strs = includes.filter(Is.str).map(strRegExpEscape);
     if (strs?.length) {
       includesRExp.push(new RegExp(strs.join("|")));
     }
@@ -500,7 +520,7 @@ export const strMatchMany = (strToTestAgainst: string, opts: SMM) => {
   if (excludes) {
     const excludesRExp: RegExp[] = [];
     excludesRExp.push(...excludes.filter(Is.regex));
-    const strs = excludes.filter(Is.str);
+    const strs = excludes.filter(Is.str).map(strRegExpEscape);
     if (strs?.length) {
       excludesRExp.push(new RegExp(strs.join("|")));
     }
@@ -524,6 +544,8 @@ export const strMatchMany = (strToTestAgainst: string, opts: SMM) => {
 export const strMatchManyFilter = (strs: string[], opts: SMM): string[] => {
   return strs.filter((s) => strMatchMany(s, opts));
 };
+
+export const strRegExpEscape = (s: string) => s.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&");
 
 export const strTrim = (s: string, len: number) => {
   if (s.length <= len) return s;
@@ -797,13 +819,13 @@ class File<
 
   get exists() {
     if (this._existsVal === undefined) {
-      this._existsVal = fsN.existsSync(this.path);
+      this._existsVal = fs.existsS(this.path);
     }
     return this._existsVal;
   }
   existsP = async () => {
     if (this._existsVal === undefined) {
-      this._existsVal = await fsN.promises.exists(this.path);
+      this._existsVal = await fs.existsP(this.path);
     }
     return this._existsVal;
   };
@@ -1015,7 +1037,7 @@ class File<
       // if (this.path.includes(File._gattrsDir) && this.jsonDirty) debugger;
       if (this.jsonDirty) buffer = Buffer.from(File.jsonStr(await this.jsonP()));
 
-      if (!buffer && !this.exists) {
+      if (!buffer && !(await this.existsP())) {
         throw stepErr(Error(`No buffer to save from`), "buffer-get");
       }
 
@@ -1030,6 +1052,8 @@ class File<
       this.cacheClear();
       this._bufferVal = buffer;
       this._existsVal = true;
+
+      l4(`F:save->${this.path}->done`);
 
       return this;
     } catch (e) {
@@ -1330,11 +1354,21 @@ export class fs {
     path: string;
   }> = {};
 
-  static exists = (path: string) => {
-    return fsN.existsSync(path);
+  static existsS = (path: string) => {
+    try {
+      fsN.statSync(path);
+      return true;
+    } catch (e) {
+      return false;
+    }
   };
   static existsP = async (path: string) => {
-    return fsN.promises.exists(path);
+    try {
+      await fsN.promises.stat(path);
+      return true;
+    } catch (e) {
+      return false;
+    }
   };
 
   /** get file list from cache or fs */
@@ -1371,11 +1405,11 @@ export class fs {
           typeFilter,
         } = opts;
 
-        excludes.push(...[/\.DS_Store/]);
+        if (!excludes.includes(".DS_Store")) excludes.push(".DS_Store");
 
         if (includes?.length) {
           for (const inc of includes) {
-            if (Is.str(inc) && inc.startsWith("/")) throw Error(`includes must be relative`);
+            if (Is.str(inc) && inc.startsWith("/")) throw Error(`includes must not be abs str paths`);
           }
         }
 
@@ -1385,13 +1419,14 @@ export class fs {
           .then(async (rdResults) =>
             P.all(
               rdResults.map(async (rdResult) => {
-                const shouldInclude = strMatchMany(rdResult.name, {
+                const rdResAbsPath = `${pathToFindIn}/${rdResult.name}`;
+
+                const shouldInclude = strMatchMany(rdResAbsPath, {
                   excludes,
                   includes,
                 });
                 if (!shouldInclude) return;
 
-                const rdResAbsPath = `${pathToFindIn}/${rdResult.name}`;
                 const isDir = rdResult.isDirectory();
                 const isFile = rdResult.isFile();
 
@@ -1399,6 +1434,7 @@ export class fs {
                   const lsPaths = await fs.find(rdResAbsPath, {
                     currentDepth: currentDepth + 1,
                     excludes,
+                    includes,
                     maxDepth,
                     recursive,
                     typeFilter,
@@ -1741,14 +1777,22 @@ export class sh {
 
       const lines = text
         .split("\n")
-        .filter(logFilter)
         .map((l) => {
           l = l.trim().replace(strAnsiEscapeExp, "").replace(process.cwd(), "wd:");
           return l;
         })
         .filter(Boolean);
-      allout += lines.join("\n") + "\n";
-      _logOut(lines.map((l) => `${prefix} ${l}`).join("\n"));
+      if (lines.length) {
+        allout += lines.join("\n") + "\n";
+        // FIXME: Running with nodejs shows raw output to console for some reason
+        const filtered = lines
+          .filter(logFilter)
+          .map((l) => l.trim())
+          .filter(Boolean);
+        if (filtered.length) {
+          _logOut(filtered.map((l) => `${prefix} ${l}`).join("\n"));
+        }
+      }
     };
 
     _log4(`${prefix} cmd='${strTrim(cmd, 300)}'`);
@@ -1786,6 +1830,7 @@ export class sh {
           execId: id,
           step: "exec",
           workingDir: wd,
+          ...(silent ? { allout } : {}),
         });
         if (throws) {
           execP.reject(err);
@@ -1877,7 +1922,7 @@ export class Log {
 
       const txt = Log.stringify(...args);
 
-      const logFileTxt = `${tsNoYear} L${n} ${strNoColors(txt)} + "\n"`;
+      const logFileTxt = `${tsNoYear} L${n} ${strNoColors(txt)}\n`;
       Log.appendLogFilePromises.push(fs.append(Log.file, logFileTxt)); // be lazy about it
 
       // skip logging to console if the log message level is higher than the log level
@@ -1931,6 +1976,9 @@ export class Log {
   };
   /** Prints in color for easy finding in debugging  */
   lerr = (err: anyOk) => {
+    if (Is.str(err)) {
+      return this.l1(Log.red(err));
+    }
     console.log(err);
 
     const logTxt = `ERROR-CTX->${str(
@@ -2126,28 +2174,46 @@ export class Yarn {
               inc: pkgName,
             });
           }
-          await sh.exec(`yarn cache clean ${pkgName}`, { prefix: "YARN", wd: wsRoot });
+          let tries = 0;
+          const ycc = () =>
+            sh.exec(`yarn cache clean ${pkgName}`, { prefix: "YARN", silent: true, wd: wsRoot }).catch(async (err) => {
+              // handle error: An unexpected error occurred: "There should only be one folder in a package cache (got
+              // in /Users/brian.dombrowski/Library/Caches/Yarn/v6/npm-@opendoor-eslint-plugin-0.0.0-local-482c49296f\
+              //3a7e192ee780c76cfe4edf5c4c1cfc-3bad1dcac8b4c893e5960f8a7bb52a2e67bf4d44-integrity/node_modules/@opendoor)".
+              // This doesn't seem to happen often and I'm not sure why it happens. But rm the dir seems to resolve.
+              const onlyOneFolderPath = err?.allout.match(
+                new RegExp(`There should only be one folder in a package cache \\(got  in (.*)/node_modules`),
+              );
 
-          // find wasn't able to find `yarn cache dir` for some reason so semi-hardcoding. Is faster too.
-          // const cacheDir = `$(yarn cache dir)`;
-          const cacheDir = `${fs.home}/Library/Caches/Yarn/v6`;
-          await sh
-            .exec(
-              // `find $(yarn cache dir)/.tmp -name package.json -exec grep -sl ${pkgName} {} \\; ` +
-              `find ${cacheDir}/.tmp -name package.json -exec grep -sl ${pkgName} {} \\; ` +
-                `| xargs dirname | xargs rm -rf`,
-              {
-                prefix: "YARN",
-                silent: UTIL_ENV.logLevel < 4,
-                wd: wsRoot,
-              },
-            )
-            .then((out) => {
-              if (out.includes("No such file or directory"))
-                throw stepErr(Error(`find could not find $(yarn cache dir)/.tmp`), "cleanYarnCache", {
-                  findStdOut: out,
-                });
+              // handle error: error An unexpected error occurred: \"ENOENT: no such file or directory, scandir \
+              // '/Users/brian.dombrowski/Library/Caches/Yarn/v6/npm-@opendoor-eslint-plugin-0.0.1-\
+              //  3140853c1c8e1a4a4d4e735dcca624fecf41024f/node_modules'\".
+              // This doesn't seem to happen often and I'm not sure why it happens. But rm the dir seems to resolve.
+              const nodeModulesMissingPath = err?.allout.match(
+                new RegExp(`ENOENT: no such file or directory, scandir '(.*)/node_modules`),
+              );
+
+              const corruptFolderPath = onlyOneFolderPath?.[1] ?? nodeModulesMissingPath?.[1];
+
+              if (corruptFolderPath && tries < 3) {
+                tries++;
+                lwarn(
+                  `cleanYarnCache->detected and correcting yarn cache clean (${onlyOneFolderPath ? "oof" : "nmm"})`,
+                );
+                lwarn(`cleanYarnCache->corruptFolderPath: ${corruptFolderPath}`);
+                await fs.rm(corruptFolderPath, { force: true, recursive: true });
+                await ycc();
+              } else {
+                throw err;
+              }
             });
+          await ycc();
+
+          const cacheDir = `${fs.home}/Library/Caches/Yarn/v6`;
+          const pkgJsonsPaths = await fs.find(`${cacheDir}/.tmp`, { includes: ["package.json"], recursive: true });
+          const pkgFs = await P.all(pkgJsonsPaths.map(async (p) => fs.getPkgJsonFile(p).read()));
+          const pkgsToRm = pkgFs.filter((p) => p.json.name === pkgName);
+          await P.all(pkgsToRm.map((p) => p.del()));
         }
       }
 

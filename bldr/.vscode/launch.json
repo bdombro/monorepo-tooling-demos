@@ -16,73 +16,59 @@
       "env": {
         "LOG": "2"
       },
-      "args": ["build", "lib3"]
+      "args": ["build", "react-app"]
       // "args": ["clean", "--all", "--ws", "--buildCache"]
     },
-    {
-      "name": "bldr:clean",
-      "type": "bun",
-      "internalConsoleOptions": "neverOpen",
-      "request": "launch",
-      "program": "${workspaceFolder}/bldr/src/bldr-cli.ts",
-      "cwd": "${workspaceFolder}",
-      "stopOnEntry": false,
-      "watchMode": false,
-      "env": {
-        "LOG": "2"
-      },
-      "args": ["clean", "--all", "--ws", "--buildCache"]
-    },
-    {
-      "name": "bldr:yarn",
-      "type": "bun",
-      "internalConsoleOptions": "neverOpen",
-      "request": "launch",
-      "program": "/usr/local/bin/yarn",
-      "cwd": "${workspaceFolder}/packages/lib0",
-      "stopOnEntry": false,
-      "watchMode": false,
-      "env": {
-        "LOG": "2"
-      },
-      "args": ["install"]
-    },
+    
     {
       "name": "bldr:code",
       "type": "bun",
       "internalConsoleOptions": "neverOpen",
       "request": "launch",
       "program": "${workspaceFolder}/bldr/src/bldr-cli.ts",
-      "cwd": "/Users/brian.dombrowski/Dev/Javascript/monorepo-tooling/code-clean/js/packages/shared-fe",
-      "stopOnEntry": false,
-      "watchMode": false,
+      "cwd": "${env:HOME}/Dev/Javascript/monorepo-tooling/code-clean/js/packages/shared-fe",
       "env": {
         "LOG": "2",
         "NPM_TOKEN": "${env:NPM_TOKEN}",
       },
       // "envFile": "${workspaceFolder}/.envrc",
       // "args": ["clean", "city", "--include-dependencies", "--ws", "--buildCache"],
-      // "args": ["tree", "city"]
-      "args": ["build", "city"]
-      // "args": ["buildAttributes", "eslint-plugin"]
+      "args": ["build", "cake"]
+      // "args": ["build", "bricks-knapsack"]
+      // "args": ["tree", "bricks"]
+      // "args": ["buildAttributes", "cinderblocks"]
     },
     {
-      "name": "bldr:code:clean",
-      "type": "bun",
-      "internalConsoleOptions": "neverOpen",
+      "name": "bldr:node",
+      "type": "node",
       "request": "launch",
-      "program": "${workspaceFolder}/bldr/src/bldr-cli.ts",
-      "cwd": "/Users/brian.dombrowski/Dev/Javascript/monorepo-tooling/code-clean/js/packages/shared-fe",
-      "stopOnEntry": false,
-      "watchMode": false,
+      "program": "${workspaceFolder}/bldr/dist/src/bldr-cli.js",
+      "runtimeExecutable": "${env:HOME}/.asdf/shims/node",
       "env": {
         "LOG": "2",
+        "NODE_NO_WARNINGS": "1",
+      },
+      "preLaunchTask": "tsc: build - tsconfig.json",
+      "outFiles": ["${workspaceFolder}/bldr/dist/**/*.js"],
+      "args": ["build", "react-app"]
+    },
+    {
+      "name": "bldr:node:code",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/bldr/dist/src/bldr-cli.js",
+      "runtimeExecutable": "${env:HOME}/.asdf/shims/node",
+      "cwd": "${env:HOME}/Dev/Javascript/monorepo-tooling/code-clean/js/packages/shared-fe",
+      "env": {
+        "LOG": "2",
+        "NODE_NO_WARNINGS": "1",
         "NPM_TOKEN": "${env:NPM_TOKEN}",
       },
-      // "args": ["clean", "city", "--include-dependencies", "--ws", "--buildCache"],
-      "args": ["clean", "city", "--include-dependencies", "--include-dependents", "--ws", "--buildCache"],
+      "preLaunchTask": "tsc: build - tsconfig.json",
+      "outFiles": ["${workspaceFolder}/bldr/dist/**/*.js"],
+      "args": ["build", "cake"]
     },
-    // To attach, just start this before running bun in a Javascript debug terminal
+    // To attach to JS debug console, just start this before running bun in a Javascript debug terminal
     {
       "type": "bun",
       "internalConsoleOptions": "neverOpen",
@@ -91,33 +77,17 @@
       "url": "ws://localhost:6499/",
       "stopOnEntry": false
     },
-    // {
-    //   "type": "bun",
-    //   "internalConsoleOptions": "neverOpen",
-    //   "request": "launch",
-    //   "name": "bootstrap",
-    //   "program": "${file}",
-    //   "cwd": "${workspaceFolder}",
-    //   "stopOnEntry": false,
-    //   "watchMode": false,
-    //   "env": {
-    //     "LOG": "5"
-    //   },
-    //   "args": []
-    // },
-    // {
-    //   "type": "bun",
-    //   "internalConsoleOptions": "neverOpen",
-    //   "request": "launch",
-    //   "name": "Run File",
-    //   "program": "${file}",
-    //   "cwd": "${workspaceFolder}",
-    //   "noDebug": true,
-    //   "watchMode": false,
-    //   "env": {
-    //     "LOG": "5"
-    //   },
-    //   "args": []
-    // },
+    {
+      "name": "bldr:yarn",
+      "type": "bun",
+      "internalConsoleOptions": "neverOpen",
+      "request": "launch",
+      "program": "/usr/local/bin/yarn",
+      "cwd": "${workspaceFolder}/packages/lib0",
+      "env": {
+        "LOG": "2"
+      },
+      "args": ["install"]
+    },
   ]
 }

@@ -5,14 +5,15 @@
     "target": "ESNext",
     "module": "ESNext",
     "moduleDetection": "force",
-    "jsx": "react-jsx",
     "allowJs": true,
 
     // Bundler mode
     "moduleResolution": "bundler",
-    "allowImportingTsExtensions": true,
+    // "allowImportingTsExtensions": true,
     // "verbatimModuleSyntax": true,
-    "noEmit": true,
+    // "noEmit": true,
+    "sourceMap": true,
+    "outDir": "dist",
 
     // Best practices
     "strict": true,
@@ -27,5 +28,5 @@
     "noUnusedParameters": false,
     "allowUnreachableCode": true
   },
-  "include": ["src"]
+  // "include": ["src"]
 }

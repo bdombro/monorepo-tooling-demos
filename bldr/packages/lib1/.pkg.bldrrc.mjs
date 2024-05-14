@@ -14,6 +14,20 @@ export default bldrPkgConfig({
 /** Used mainly to make typing better and easier by using `typeof configEmpty` */
 const configPkgEmpty = Object.freeze({
   /**
+   * List of log filters to apply to the build log, like to suppress distracting
+   * build warnings.
+   *
+   * @type {string | RegExp[]}
+   */
+  buildLogFilters: [],
+  /**
+   * List of log filters to apply to the install log, like to suppress distracting
+   * install warnings.
+   *
+   * @type {string | RegExp[]}
+   */
+  installLogFilters: [],
+  /**
    * List of files that should be ignored in the post-build source change check.
    *
    * bldr will error if src files change post-build bc this may mean a build artifact

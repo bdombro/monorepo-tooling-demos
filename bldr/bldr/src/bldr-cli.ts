@@ -27,12 +27,11 @@
  *  - The crosslinks of the package are already built and packed into package.tgz
  */
 import arg from "arg";
-import { cachify, fs, Log, logDefault, P, sh, stepErr, Time, UTIL_ENV, A, strCompare, throttle, str } from "./util.js";
+import { fs, logDefault, sh, stepErr, Time, UTIL_ENV, A, strCompare, str, lerr } from "./util.js";
 import { Pkg, Bldr } from "./bldr-lib.js";
-import bldrPkgJson from "../package.json";
 
 const __filename = fs.fileURLToPath(import.meta.url);
-// const __dirname = fs.dirname(__filename);
+const __dirname = fs.dirname(__filename);
 const isCalledFromCli = import.meta.url === `file://${process.argv[1]}`;
 
 export const BLDR_ENV = {
@@ -42,28 +41,54 @@ export const BLDR_ENV = {
 
 export class Main {
   usage(exitCode = 0): never {
-    console.log(
-      `
-  bldr-cli - A monorepo cli tool that bootstraps and builds JS applications in a monorepo
+    const bldrPkgJson = fs.getPkgJsonFile(`${__dirname}/../package.json`).json;
+    logDefault.l2(
+      `  
+  bldr-cli - A monorepo tool for managing JavaScript applications, focusing on correct handling of crosslinks 
+  between packages to mimic npm installations.
 
   Version: ${bldrPkgJson.version}
-
+  
   Usage:
-    pkg [opts] <action> [...action args]
-    ...after install, or use \`bun ${__filename}\` the first time to install
-
-    Args are usually package names or paths, and can be regex
-
-  Env:
-  LOG=n: sets log level, 1-4 (default 1)
-
+    bldr [options] <action> [...action args]
+  
+  Options:
+    --ci                     Run in continuous integration mode.
+    --help                   Show help.
+    --no-cache               Skip cache for builds or bootstrapping.
+    --show-loglevels         Display log levels in output.
+    --show-timestamps        Display timestamps in log output.
+    --loglevel <number>      Set log level, where higher numbers show more detail.
+    --verbose                Increase verbosity of output (can be specified multiple times).
+    --version                Show version of the CLI tool.
+    --all                    Apply actions to all packages in the workspace.
+    --excludes <packages>    Exclude certain packages from actions, can be a comma-separated list or regex.
+    --include-dependencies   Apply actions to crosslink dependencies.
+    --include-dependents     Apply actions to crosslink dependents.
+    --concurrancy <number>   Set concurrency level for actions that support parallel execution.
+    --builds                 Clean build artifacts only.
+    --buildCache             Clean build caches only.
+    --hard                   Perform hard clean, affecting all build artifacts and caches.
+    --metaStore              Clean package metadata stores.
+    --nodeModulesAll         Remove all node_modules directories.
+    --nodeModuleCrosslinks   Remove only crosslinked node_modules directories.
+    --ws                     Clean entire workspace (build artifacts, metadata stores, and crosslinks).
+    --yarn                   Clean Yarn caches.
+  
   Actions:
-  bootstrap:
-    - installs a package's dependencies, with special handling for cross-linked packages
-      so that they as if they were installed from npm
-  build: bootstrap + build + pack
-  sync: rsyncs the builds of all cross-linked packages with 
-  watch: sync with watch mode
+    bootstrap                Install package dependencies with special handling for crosslinks as if installed from npm.
+    build                    Perform bootstrap, then build, and finally pack the packages.
+    sync                     Synchronize the builds of crosslinked packages using rsync.
+    watch                    Continuously sync changes to crosslinked packages.
+    clean                    Remove build artifacts, caches, and optionally clean up workspace metadata.
+    exec                     Execute a specified command in the context of selected packages.
+    info                     Display detailed information about a package's build and cache status.
+    tree                     Visualize the dependency tree of the packages.
+    buildAttributes          Display the source files and their checksums used in the last build.
+    pkgJson-preinstall       Prepare the package for installation by adjusting the package.json and yarn.lock.
+    pkgJson-postinstall      Reset modifications made during the preinstall step.
+    pkgJson-prebuild         Prepare the package for building, including cleaning previous builds.
+    pkgJson-postbuild        Finalize the build process, including integrity checks, packing, caching.
   `.replace(/^ {2}/gm, ""),
     );
     process.exit(exitCode);
@@ -126,16 +151,17 @@ export class Main {
     // this.args._.shift(); // remove the "bldr" command
     this.action = this.args._.shift()!;
 
-    const { allArgs, args, usage } = this;
+    const { allArgs, args } = this;
 
-    if (args["--help"]) usage();
+    if (args["--help"]) this.usage();
 
     if (args["--version"]) {
+      const bldrPkgJson = fs.getPkgJsonFile(`${__dirname}/../package.json`).json;
       console.log(bldrPkgJson.version);
       process.exit(0);
     }
 
-    if (!this.action) usage();
+    if (!this.action) this.usage();
 
     BLDR_ENV.ci = UTIL_ENV.ci = args["--ci"] && ["1", "true"].includes(args["--ci"]) ? true : BLDR_ENV.ci;
     BLDR_ENV.logLevel = UTIL_ENV.logLevel =
@@ -214,8 +240,8 @@ export class Main {
           break;
         }
         default:
-          Bldr.lerr("ERROR: Invalid action\n");
-          usage(1);
+          lerr("Invalid action");
+          this.usage(1);
       }
     } catch (err: anyOk) {
       await Bldr.lFinish({ err });
@@ -285,7 +311,7 @@ export class Main {
     });
     const cmd = this.argsAfterDashdash.join(" ");
     if (!cmd) {
-      lerr(`:ERROR: Specify command after --`);
+      lerr(`ERROR: Specify command after --`);
       this.usage(1);
     }
     await Bldr.exec(pkgs, cmd, {
@@ -300,7 +326,7 @@ export class Main {
     const metaPathNice = pkg.pkgMetaFile.path.replace(fs.home, "~");
     const bldPathNice = pkg.bldArtifactFile.path.replace(fs.home, "~");
     const attrsPath = pkg.bldArtifactFile.gattrsF.path.replace(fs.home, "~");
-    const bootstrapped = fs.exists(`${pkg.pathAbs}/node_modules`);
+    const bootstrapped = fs.existsS(`${pkg.pathAbs}/node_modules`);
     const isFresh = await pkg.bldArtifactIsUpToDate();
     const buildTimes = stats?.buildTimes?.map((t) => Time.diff(0, t)).join(", ") || "n/a";
     const buildSizes = stats?.buildSizes?.map((s) => `${+(s / 1024).toFixed(1)}kB`).join(", ") || "n/a";
@@ -328,7 +354,7 @@ export class Main {
   private buildAttributes = async () => {
     const pkg = await this.getPkg();
     logDefault.l1(`\nINFO:SRC-FILES ${pkg.name}\n`);
-    logDefault.l2(str(await pkg.bldArtifactAttrsGet(), 2));
+    logDefault.l2(str(await pkg.bldArtifactAttrsCreate(), 2));
   };
 
   private tree = async (opts: { embedded?: boolean } = {}) => {
@@ -509,5 +535,5 @@ export class Main {
 }
 
 if (isCalledFromCli) {
-  await new Main().run();
+  new Main().run();
 }

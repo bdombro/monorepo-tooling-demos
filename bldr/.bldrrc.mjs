@@ -1,8 +1,6 @@
 // @ts-check
 
-export default bldrConfig({
-  postBuildSourceCheckIgnores: ["__generated__"],
-});
+export default bldrConfig({});
 
 //
 // bldr config function below
@@ -13,6 +11,20 @@ export default bldrConfig({
 
 /** Used mainly to make typing better and easier by using `typeof configEmpty` */
 const configEmpty = Object.freeze({
+  /**
+   * List of log filters to apply to the build log, like to suppress distracting
+   * build warnings.
+   *
+   * @type {string | RegExp[]}
+   */
+  buildLogFilters: [],
+  /**
+   * List of log filters to apply to the install log, like to suppress distracting
+   * install warnings.
+   *
+   * @type {string | RegExp[]}
+   */
+  installLogFilters: [],
   /**
    * List of files that should be ignored in the post-build source change check.
    *

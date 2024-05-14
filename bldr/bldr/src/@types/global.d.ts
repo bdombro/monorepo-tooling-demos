@@ -118,6 +118,15 @@ interface PkgJsonFields {
   optionalDependencies?: Dict;
   peerDependencies?: Dict;
   private?: boolean;
-  scripts?: Dict;
+  scripts?: {
+    clean?: string;
+    preinstall?: string;
+    install?: string;
+    postinstall?: string;
+    prebuild?: string;
+    build?: string;
+    postbuild?: string;
+    [key: string]: string;
+  };
   version: string;
 }
