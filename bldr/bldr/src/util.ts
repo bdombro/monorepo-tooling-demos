@@ -1,5 +1,3 @@
-#!/usr/bin/env bun
-
 import childProcessN from "node:child_process";
 import cryptoN from "node:crypto";
 import fsN from "node:fs";
@@ -1309,10 +1307,10 @@ class File<
     }
   };
 }
-interface SnapshotFile {
+export interface SnapshotFile {
   [name: string]: Snapshot;
 }
-interface Snapshot {
+export interface Snapshot {
   name: string;
   ts: number;
   gzbase64: string;

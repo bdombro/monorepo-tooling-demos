@@ -5,18 +5,19 @@
   "type": "module",
   "scripts": {
     "format": "prettier --write .",
-    "lint": "eslint .",
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "build": "tsc",
-    "start": "node dist/src/bldr-cli.js",
-    "clean": "rm -rf dist",
+    "lint": "tsc --noEmit && eslint .",
+    "build": "make build",
+    "build-node": "make build-node",
+    "start-node": "node dist/src/bldr-cli.js",
+    "clean": "make clean",
     "watch": "tsc -w"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "bin": {
-    "bldr": "./dist/src/bldr-cli.js"
+    "bldr-node": "./dist/src/bldr-cli.js",
+    "bldr": "./dist-bun/bldr"
   },
   "main": "dist/src/bldr-cli.js",
   "dependencies": {

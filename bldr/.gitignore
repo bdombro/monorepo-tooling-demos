@@ -12,3 +12,5 @@ build.log
 *.bak
 *.tgz
 .envrc-secrets
+dist
+dist-bun

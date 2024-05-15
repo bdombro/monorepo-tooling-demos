@@ -1,4 +1,3 @@
-#!/usr/bin/env bun
 /**
  * bldr-cli - A monorepo cli tool that bootstraps and builds JS applications in a monorepo, with
  * careful handling of crosslinks to mimic the install behavior of published npm packages.
@@ -29,6 +28,7 @@
 import arg from "arg";
 import { fs, logDefault, sh, stepErr, Time, UTIL_ENV, A, strCompare, str, lerr } from "./util.js";
 import { Pkg, Bldr } from "./bldr-lib.js";
+import bldrPkgJson from "../package.json" assert { type: "json" };
 
 const __filename = fs.fileURLToPath(import.meta.url);
 const __dirname = fs.dirname(__filename);
@@ -41,7 +41,6 @@ export const BLDR_ENV = {
 
 export class Main {
   usage(exitCode = 0): never {
-    const bldrPkgJson = fs.getPkgJsonFile(`${__dirname}/../package.json`).json;
     logDefault.l2(
       `  
   bldr-cli - A monorepo tool for managing JavaScript applications, focusing on correct handling of crosslinks 
@@ -156,7 +155,6 @@ export class Main {
     if (args["--help"]) this.usage();
 
     if (args["--version"]) {
-      const bldrPkgJson = fs.getPkgJsonFile(`${__dirname}/../package.json`).json;
       console.log(bldrPkgJson.version);
       process.exit(0);
     }

@@ -714,8 +714,9 @@ class PkgWithBuild extends PkgWTree {
   };
 
   /** Gets the class instance of the artifact file */
-  get bldArtifactFile() {
-    return (this._bldArtifactFile =
+  public get bldArtifactFile() {
+    if (this._bldArtifactFile) return this._bldArtifactFile;
+    this._bldArtifactFile =
       this._bldArtifactFile ??
       fs.get<never, PkgArtifactAttrs>(this.bldArtifactPath, {
         gattrsDefault: {
@@ -724,7 +725,8 @@ class PkgWithBuild extends PkgWTree {
           deps: {},
           files: {},
         },
-      }));
+      });
+    return this._bldArtifactFile;
   }
   /** Don't use this directly */
   private _bldArtifactFile?: ReturnTypeP<typeof fs.get<never, PkgArtifactAttrs>>;

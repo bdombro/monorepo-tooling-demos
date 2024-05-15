@@ -11,9 +11,10 @@
     "moduleResolution": "bundler",
     // "allowImportingTsExtensions": true,
     // "verbatimModuleSyntax": true,
-    // "noEmit": true,
     "sourceMap": true,
     "outDir": "dist",
+    // "declaration": true,
+    "resolveJsonModule": true,
 
     // Best practices
     "strict": true,
@@ -28,5 +29,5 @@
     "noUnusedParameters": false,
     "allowUnreachableCode": true
   },
-  // "include": ["src"]
+  "include": ["src"]
 }
