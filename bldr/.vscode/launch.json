@@ -9,8 +9,8 @@
       "type": "bun",
       "internalConsoleOptions": "neverOpen",
       "request": "launch",
-      "program": "${workspaceFolder}/bldr/src/bldr-cli.ts",
-      "cwd": "${workspaceFolder}",
+      "program": "${workspaceFolder}/src/bldr-cli.ts",
+      "cwd": "${workspaceFolder}/test",
       "stopOnEntry": false,
       "watchMode": false,
       "env": {
@@ -27,7 +27,7 @@
       "type": "bun",
       "internalConsoleOptions": "neverOpen",
       "request": "launch",
-      "program": "${workspaceFolder}/bldr/src/bldr-cli.ts",
+      "program": "${workspaceFolder}/src/bldr-cli.ts",
       "cwd": "${env:HOME}/Dev/Javascript/monorepo-tooling/code-clean/js/packages/shared-fe",
       "env": {
         "LOG": "2",
@@ -47,15 +47,16 @@
       "name": "bldr:node",
       "type": "node",
       "request": "launch",
-      "program": "${workspaceFolder}/bldr/dist/src/bldr-cli.js",
+      "program": "${workspaceFolder}/dist/src/bldr-cli.js",
       "runtimeExecutable": "${env:HOME}/.asdf/shims/node",
+      "cwd": "${workspaceFolder}/test",
       "env": {
         "LOG": "2",
         "NODE_NO_WARNINGS": "1",
         "NPM_TOKEN": "${env:NPM_TOKEN}",
       },
       // "preLaunchTask": "tsc: build - tsconfig.json",
-      "outFiles": ["${workspaceFolder}/bldr/dist/**/*.js"],
+      "outFiles": ["${workspaceFolder}/dist/**/*.js"],
       "args": ["build", "react-app"],
       // "args": ["clean", "--all", "--ws", "--buildCache"],
     },
@@ -63,7 +64,7 @@
       "name": "bldr:node:code",
       "type": "node",
       "request": "launch",
-      "program": "${workspaceFolder}/bldr/dist/src/bldr-cli.js",
+      "program": "${workspaceFolder}/dist/src/bldr-cli.js",
       "runtimeExecutable": "${env:HOME}/.asdf/shims/node",
       "cwd": "${env:HOME}/Dev/Javascript/monorepo-tooling/code-clean/js/packages/shared-fe",
       "env": {
@@ -72,7 +73,7 @@
         "NPM_TOKEN": "${env:NPM_TOKEN}",
       },
       "preLaunchTask": "tsc: build - tsconfig.json",
-      "outFiles": ["${workspaceFolder}/bldr/dist/**/*.js"],
+      "outFiles": ["${workspaceFolder}/dist/**/*.js"],
       "args": ["build", "city", "cake"]
       // "args": ["clean", "city", "cake", "--include-dependencies", "--ws", "--buildCache"],
     },
@@ -91,7 +92,7 @@
       "internalConsoleOptions": "neverOpen",
       "request": "launch",
       "program": "/usr/local/bin/yarn",
-      "cwd": "${workspaceFolder}/packages/lib0",
+      "cwd": "${workspaceFolder}/test/packages/lib0",
       "env": {
         "LOG": "2"
       },

@@ -28,6 +28,13 @@ clean:
 	rm -f /usr/local/bin/bldr
 	rm -rf dist*
 
+clean-test:
+	@echo "Clean tests"
+	rm -rf test/packages/*/node_modules
+	rm -rf test/packages/*/dist
+	rm -rf test/packages/*/package.tgz
+	rm -rf ~/.bldr
+
 dev:
 	@if ! command -v fswatch &> /dev/null; then brew install fswatch; fi
 	@make install

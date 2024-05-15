@@ -8,6 +8,7 @@
     "sourceMap": true,
     "strict": true,
     "allowSyntheticDefaultImports": true,
+    "typeRoots": ["node_modules/@types"],
   },
   "include": ["src"]
 }

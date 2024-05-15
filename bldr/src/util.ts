@@ -1999,9 +1999,9 @@ export class Log {
   };
 
   lFinish = async (opts: { err?: anyOk } = {}) => {
-    await Log.waitForlogFileSettled();
     const { err } = opts;
     if (err) this.lerr(err);
+    await Log.waitForlogFileSettled();
   };
 
   /** converts arbitrary args to a string */

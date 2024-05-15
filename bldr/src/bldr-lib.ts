@@ -1119,7 +1119,9 @@ class PkgWithBuild extends PkgWTree {
           verbose: UTIL_ENV.logLevel > 1,
           wd: this.pathAbs,
         })
-        .catch(stepErrCb("pkgJsonBuild"));
+        .catch((e) => {
+          throw stepErr(e, "pkgJsonBuild");
+        });
       clearInterval(i);
 
       this.l2(`<-build ${Time.diff(start)}`);
