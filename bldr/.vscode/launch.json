@@ -14,7 +14,9 @@
       "stopOnEntry": false,
       "watchMode": false,
       "env": {
-        "LOG": "2"
+        "LOG": "2",
+        "NPM_TOKEN": "${env:NPM_TOKEN}",
+        "PATH": "${env:PATH}:${env:HOME}/.asdf/bin::${env:HOME}/.asdf/shims"
       },
       "args": ["build", "react-app"]
       // "args": ["clean", "--all", "--ws", "--buildCache"]
@@ -30,13 +32,16 @@
       "env": {
         "LOG": "2",
         "NPM_TOKEN": "${env:NPM_TOKEN}",
+        "PATH": "${env:PATH}:${env:HOME}/.asdf/bin::${env:HOME}/.asdf/shims",
       },
       // "envFile": "${workspaceFolder}/.envrc",
-      // "args": ["clean", "city", "--include-dependencies", "--ws", "--buildCache"],
-      "args": ["build", "cake"]
+      // "args": ["clean", "cake", "--include-dependencies", "--ws", "--buildCache"],
+      // "args": ["build", "cake"]
       // "args": ["build", "bricks-knapsack"]
       // "args": ["tree", "bricks"]
       // "args": ["buildAttributes", "cinderblocks"]
+      "args": ["build", "city", "cake"],
+      // "args": ["clean", "city", "cake", "--include-dependencies", "--ws", "--buildCache"],
     },
     {
       "name": "bldr:node",
@@ -47,10 +52,12 @@
       "env": {
         "LOG": "2",
         "NODE_NO_WARNINGS": "1",
+        "NPM_TOKEN": "${env:NPM_TOKEN}",
       },
-      "preLaunchTask": "tsc: build - tsconfig.json",
+      // "preLaunchTask": "tsc: build - tsconfig.json",
       "outFiles": ["${workspaceFolder}/bldr/dist/**/*.js"],
-      "args": ["build", "react-app"]
+      "args": ["build", "react-app"],
+      // "args": ["clean", "--all", "--ws", "--buildCache"],
     },
     {
       "name": "bldr:node:code",
@@ -66,7 +73,8 @@
       },
       "preLaunchTask": "tsc: build - tsconfig.json",
       "outFiles": ["${workspaceFolder}/bldr/dist/**/*.js"],
-      "args": ["build", "cake"]
+      "args": ["build", "city", "cake"]
+      // "args": ["clean", "city", "cake", "--include-dependencies", "--ws", "--buildCache"],
     },
     // To attach to JS debug console, just start this before running bun in a Javascript debug terminal
     {

@@ -155,8 +155,8 @@ export class Bldr {
         if (opts.builds) _p.push(p.bldClean());
         if (opts.buildCache) _p.push(p.bldArtifactCachePurge());
         if (opts.metaStore) _p.push(p.pkgMetaFile.delP());
-        if (opts.nodeModulesAll) _p.push(p.bootstrapClean({ hard: true }));
-        else if (opts.nodeModuleCrosslinks) _p.push(p.bootstrapClean());
+        if (opts.nodeModulesAll) _p.push(p.nodeModulesClean({ hard: true }));
+        else if (opts.nodeModuleCrosslinks) _p.push(p.nodeModulesClean());
         if (opts.yarnCache) _p.push(p.yarnCacheClean());
         await P.allF(_p);
       }
@@ -796,6 +796,12 @@ class PkgWithBuild extends PkgWTree {
 
   public bldMain = async (opts: { noCache: boolean; recursed?: boolean }) => {
     if (this._bldMainLast) return this._bldMainLast;
+
+    if (!this.json?.scripts?.build) {
+      this.l1(`->build skipped (no build script)`);
+      return;
+    }
+
     const pwv = P.wr<void>();
     this._bldMainLast = pwv.promise;
 
@@ -840,23 +846,6 @@ class PkgWithBuild extends PkgWTree {
     }
   };
   private _bldMainLast?: Promise<void>;
-
-  public bootstrapClean = async (opts: { hard?: boolean } = {}) => {
-    try {
-      const { hard } = opts;
-      if (hard) {
-        await fs.rm(`${this.pathAbs}/node_modules`).catch(() => {});
-      } else {
-        await P.all(
-          this.dcClsForInstall.map((cl) => {
-            return fs.rm(`${this.pathAbs}/node_modules/${cl.json.name}`, { force: true, recursive: true });
-          }),
-        );
-      }
-    } catch (e) {
-      throw stepErr(e, "bootstrapClean");
-    }
-  };
 
   public bootstrapMain = async (opts: { noCache: boolean }) => {
     try {
@@ -908,6 +897,28 @@ class PkgWithBuild extends PkgWTree {
     }
   };
 
+  public nodeModulesClean = async (opts: { hard?: boolean } = {}) => {
+    try {
+      const { hard } = opts;
+      if (hard) {
+        await fs.rm(`${this.pathAbs}/node_modules`).catch(() => {});
+      } else {
+        await P.all(
+          this.dcClsForInstall.map(async (cl) => {
+            await P.all([
+              fs.rm(`${this.pathAbs}/node_modules/${cl.json.name}`, { force: true, recursive: true }),
+              ...O.keys(cl.json?.bin ?? {}).map((k) =>
+                fs.rm(`${this.pathAbs}/node_modules/.bin/${k}`, { force: true }),
+              ),
+            ]);
+          }),
+        );
+      }
+    } catch (e) {
+      throw stepErr(e, "bootstrapClean");
+    }
+  };
+
   /**
    * Preps the package for install by:
    * 1. removing cls from yarn.lock
@@ -920,14 +931,19 @@ class PkgWithBuild extends PkgWTree {
 
       const _p: Promise<anyOk>[] = [];
 
+      // Ensure deps are ready
       _p.push(this.bldDependencies({ noCache }));
+
+      // Clean node_modules
+      _p.push(this.nodeModulesClean());
+
       // create backup of package.json to be restored in pkgJsonPostinstall
       _p.push(this.jsonF.snapshot("pkgJsonPreinstall"));
 
-      // 1. remove cls from yarn.lock so yarn fresh installs
+      // remove cls from yarn.lock so yarn fresh installs
       _p.push(this.lockfileClean());
 
-      // 2. upsert cls (incl nested) as ../[pkg]/package.tgz to package.json
+      // upsert cls (incl nested) as ../[pkg]/package.tgz to package.json
 
       // assert that the package.json isn't currupt
       for (const [k, v] of O.ents({
@@ -1002,7 +1018,6 @@ class PkgWithBuild extends PkgWTree {
           })
           .catch(async (e) => {
             // Retry bc yarn install is flaky due to cache and registry failures.
-            // Retry if yarn cache is corrupt, bc retrying usually works.
             // Error=`
             //   error Extracting tar content of undefined failed, the file appears to be corrupt:
             //   "ENOENT: no such file or directory, open '/Users/brian.dombrowski/Library/Caches/\
@@ -1012,15 +1027,14 @@ class PkgWithBuild extends PkgWTree {
             //   Library/Caches/Yarn/v6/.tmp/c552cbe84befea3187841faab0c30e00/src/index.ts' -> '/Users\
             //   /brian.dombrowski/Library/Caches/Yarn/v6/npm-@app-lib1-1.0.4-7bd590437db3a3403bdd38aa1993fe899aa7a941\
             //   /node_modules/@app/lib1/src/index.ts'
-            if (tries < 4) {
+            if (tries++ < 4) {
               let reason = "unk";
               if (e.message.includes("Extracting tar content of undefined failed, the file appears to be corrupt"))
                 reason = "cc1";
-              else if (e.message.includes("ENOENT: no such file or directory, copyfile")) reason = "cc2";
-              this.lwarn(`:retrying->yarn-install (${reason})`);
-              await yi();
-              tries++;
+              if (e.message.includes("ENOENT: no such file or directory, copyfile")) reason = "cc2";
+              this.lwarn(`:retrying->yarn-install (${reason}) - try ${tries}/4`);
               await sh.sleep(1000 * tries);
+              await yi();
             } else {
               throw e;
             }
@@ -1073,15 +1087,24 @@ class PkgWithBuild extends PkgWTree {
       const lastDuration = await this.pkgMetaFile.jsonP().then((m) => m.stats.buildTimes[0] ?? 0);
       const lastDurationPretty = lastDuration ? Time.diff(0, lastDuration) : "";
 
+      if (!this.json?.scripts?.build) {
+        this.l1(`->build skipped (no build script)`);
+        return;
+      }
+
       this.l1(`->build ${lastDurationPretty ? `(took ${lastDurationPretty} last time)` : ""}`);
 
-      await this.jsonF.disableHooks().save();
+      // THis is the old method, which calls yarn build directly. This is not ideal bc it's
+      // more indirect and requires disabling hooks prior to build.
+      // await this.jsonF.disableHooks().save();
+      // await sh.exec(`yarn build`, {...
+      // await this.jsonF.enableHooks().save();
 
       const i = setInterval(() => {
         if (UTIL_ENV.logLevel == 1) this.l1(`:build->working...${Time.diff(start)}`);
       }, 30000);
       await sh
-        .exec(`LOG=${UTIL_ENV.logLevel} yarn build`, {
+        .exec(`export PATH=$PATH:./node_modules/.bin; ${this.json.scripts.build}`, {
           logFilter: (l) => {
             const match = this.conf.buildLogFilters.some((f) => {
               if (Is.str(f)) return l.includes(f);
@@ -1097,7 +1120,6 @@ class PkgWithBuild extends PkgWTree {
         .catch(stepErrCb("pkgJsonBuild"));
       clearInterval(i);
 
-      await this.jsonF.enableHooks().save();
       this.l2(`<-build ${Time.diff(start)}`);
     } catch (e: anyOk) {
       throw stepErr(e, "pkgJsonBuild", { pkg: this.basename });
@@ -1110,9 +1132,8 @@ class PkgWithBuild extends PkgWTree {
       const start = new Date();
       await this.pkgJsonPostBuildAssertIntegrity();
       await this.pkgJsonPostBuildPack();
-      await this.pkgJsonPostBuildCacheAdd();
+      await P.all([this.pkgJsonPostBuildCacheAdd(), this.yarnCacheClean()]);
       this.l4(`<-pkgJsonPostBuild ${Time.diff(start)}`);
-      // end pkgJsonPostbuild
     } catch (e: anyOk) {
       throw stepErr(e, "pkgJsonPostbuild", { pkg: this.basename });
     }
@@ -1172,20 +1193,20 @@ class PkgWithBuild extends PkgWTree {
 
     // a snapshot of package.json to restore post-pack
     const jsonPrePack = O.cp(this.json);
-    // package.json without crosslinks or script hooks
-    const jsonPack = O.cp(this.json);
+
+    // Disable hooks, to avoid hooks being fired on install, yarn stupidly tries to do even if the
+    // hook is in a dependency package.json. I think this is probably a bug in yarn.
+    this.jsonF.disableHooks();
+
     // Remove script hooks and crosslinks from package.json
     const rmCls = (deps: Record<string, string> = {}) =>
       Object.entries(deps)
         .filter(([, v]) => v.startsWith("../") || v === "workspace:*")
         .forEach(([d]) => delete deps[d]);
-    rmCls(jsonPack.dependencies);
-    rmCls(jsonPack.devDependencies);
-    rmCls(jsonPack.peerDependencies);
-    this.jsonF.json = jsonPack;
-    // Disable hooks, to avoid hooks being fired on install, yarn stupidly tries to do even if the
-    // hook is in a dependency package.json. I think this is probably a bug in yarn.
-    this.jsonF.disableHooks();
+    rmCls(this.jsonF.json.dependencies);
+    rmCls(this.jsonF.json.devDependencies);
+    rmCls(this.jsonF.json.peerDependencies);
+
     // Finally, commit the changes.
     await this.jsonF.save();
 
@@ -1202,7 +1223,7 @@ class PkgWithBuild extends PkgWTree {
         throw stepErr(Error("build artifact is empty"), "artifact-nonempty", { artPath: this.bldArtifactPath });
     });
 
-    await P.all([this.jsonF.jsonSet(jsonPrePack).save(), this.yarnCacheClean()]);
+    await this.jsonF.jsonSet(jsonPrePack).save();
   };
 
   /** adds (1) build meta to ws and(2) the build artifact (package.tgz) to caches (just local atm) */

@@ -100,6 +100,7 @@ type Serializable =
 
 /** The shape of a package.json file */
 interface PkgJsonFields {
+  bin?: Dict;
   dependencies?: Dict;
   description?: string;
   devDependencies?: Dict;

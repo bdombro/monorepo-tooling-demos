@@ -524,9 +524,9 @@ export const strMatchMany = (strToTestAgainst: string, opts: SMM) => {
     if (strs?.length) {
       excludesRExp.push(new RegExp(strs.join("|")));
     }
-    for (const e of excludesRExp) {
-      if (strToTestAgainst.match(e)) {
-        excludeMatch = e;
+    for (const exc of excludesRExp) {
+      if (strToTestAgainst.match(exc)) {
+        excludeMatch = exc;
         break;
       }
     }
@@ -1373,96 +1373,93 @@ export class fs {
 
   /** get file list from cache or fs */
   // FIXME: replace usages of sh.find with this
-  static find = cachify(
-    async (
-      /** an abs path to search within */
-      pathToFindIn: string,
-      opts: SMM & {
-        /** if recursing, how deep to go. default=Inf */
-        maxDepth?: number;
-        /** recurse into directories. default=false */
-        recursive?: boolean;
-        /** Should the paths returned be relative to pathToLs. default=false; */
-        relative?: boolean;
-        /** Search files or dirs. default=both */
-        typeFilter?: "file" | "dir";
-        /** internal use: how deep we are if recursing */
-        currentDepth?: number;
-      } = {},
-    ): Promise<string[]> => {
-      try {
-        l5(`fs.find:start->${pathToFindIn}`);
+  // TODO: Check if need to cachifyf
+  static find = async (
+    /** an abs path to search within */
+    pathToFindIn: string,
+    opts: SMM & {
+      /** if recursing, how deep to go. default=Inf */
+      maxDepth?: number;
+      /** recurse into directories. default=false */
+      recursive?: boolean;
+      /** Should the paths returned be relative to pathToLs. default=false; */
+      relative?: boolean;
+      /** Search files or dirs. default=both */
+      typeFilter?: "file" | "dir";
+      /** internal use: how deep we are if recursing */
+      currentDepth?: number;
+    } = {},
+  ): Promise<string[]> => {
+    try {
+      l5(`fs.find:start->${pathToFindIn}`);
 
-        if (pathToFindIn[0] !== "/") pathToFindIn = pathN.resolve(process.cwd(), pathToFindIn);
+      if (pathToFindIn[0] !== "/") pathToFindIn = pathN.resolve(process.cwd(), pathToFindIn);
 
-        const {
-          currentDepth = 0,
-          excludes = [],
-          includes,
-          maxDepth = Infinity,
-          recursive = false,
-          relative = false,
-          typeFilter,
-        } = opts;
+      const {
+        currentDepth = 0,
+        excludes = [],
+        includes,
+        maxDepth = Infinity,
+        recursive = false,
+        relative = false,
+        typeFilter,
+      } = opts;
 
-        if (!excludes.includes(".DS_Store")) excludes.push(".DS_Store");
+      if (!excludes.includes(".DS_Store")) excludes.push(".DS_Store");
 
-        if (includes?.length) {
-          for (const inc of includes) {
-            if (Is.str(inc) && inc.startsWith("/")) throw Error(`includes must not be abs str paths`);
-          }
+      if (includes?.length) {
+        for (const inc of includes) {
+          if (Is.str(inc) && inc.startsWith("/")) throw Error(`includes must not be abs str paths`);
         }
+      }
 
-        let paths: string[] = [];
-        await fsN.promises
-          .readdir(pathToFindIn, { withFileTypes: true })
-          .then(async (rdResults) =>
-            P.all(
-              rdResults.map(async (rdResult) => {
-                const rdResAbsPath = `${pathToFindIn}/${rdResult.name}`;
+      let paths: string[] = [];
+      await fsN.promises
+        .readdir(pathToFindIn, { withFileTypes: true })
+        .then(async (rdResults) =>
+          P.all(
+            rdResults.map(async (rdResult) => {
+              const rdResAbsPath = `${pathToFindIn}/${rdResult.name}`;
 
-                const shouldInclude = strMatchMany(rdResAbsPath, {
+              const isExcluded = !strMatchMany(rdResAbsPath, { excludes });
+              if (isExcluded) return false;
+
+              const isDir = rdResult.isDirectory();
+
+              if (isDir && recursive && currentDepth < maxDepth) {
+                const lsPaths = await fs.find(rdResAbsPath, {
+                  currentDepth: currentDepth + 1,
                   excludes,
                   includes,
+                  maxDepth,
+                  recursive,
+                  typeFilter,
                 });
-                if (!shouldInclude) return;
+                paths.push(...lsPaths);
+              }
+              if (typeFilter) {
+                if (typeFilter === "dir" && !isDir) return false;
+                if (typeFilter === "file" && isDir) return false;
+              }
+              const isIncluded = strMatchMany(rdResAbsPath, { includes });
+              if (!isIncluded) return false;
+              paths.push(rdResAbsPath);
+            }),
+          ),
+        )
+        .catch(() => {
+          throw stepErr(Error("Path not found"), `readdir`);
+        });
 
-                const isDir = rdResult.isDirectory();
-                const isFile = rdResult.isFile();
-
-                if (isDir && recursive && currentDepth < maxDepth) {
-                  const lsPaths = await fs.find(rdResAbsPath, {
-                    currentDepth: currentDepth + 1,
-                    excludes,
-                    includes,
-                    maxDepth,
-                    recursive,
-                    typeFilter,
-                  });
-                  paths.push(...lsPaths);
-                }
-                if (typeFilter) {
-                  if (typeFilter === "dir" && !isDir) return false;
-                  if (typeFilter === "file" && !isFile) return false;
-                }
-                paths.push(rdResAbsPath);
-              }),
-            ),
-          )
-          .catch(() => {
-            throw stepErr(Error("Path not found"), `readdir`);
-          });
-
-        if (relative && currentDepth === 0) {
-          paths = paths.map((p) => fs.pathRel(pathToFindIn, p));
-        }
-        if (currentDepth === 0) paths.sort();
-        return paths;
-      } catch (e) {
-        throw stepErr(e, `fs.find`, { pathToLs: pathToFindIn });
+      if (relative && currentDepth === 0) {
+        paths = paths.map((p) => fs.pathRel(pathToFindIn, p));
       }
-    },
-  );
+      if (currentDepth === 0) paths.sort();
+      return paths;
+    } catch (e) {
+      throw stepErr(e, `fs.find`, { pathToLs: pathToFindIn });
+    }
+  };
 
   /**
    * traverse the directory tree from __dirname to find the nearest package.json
@@ -1603,7 +1600,7 @@ export class fs {
 
   /** wrapper for fs.rm and unlink with defaults and exception handling */
   static rm = async (path: string, opts: Parameters<(typeof fsN.promises)["rm"]>[1] = {}) => {
-    const { force, recursive = true } = opts;
+    const { force = false, recursive = true } = opts;
     try {
       const stat = await fs.stat(path);
       const isFile = stat.isFile();
@@ -1616,7 +1613,7 @@ export class fs {
       if (force) {
         l5(`fs.rm->ignoring missing ${path} bc force`);
       } else {
-        throw stepErr(e, "fs.rm", { rmPath: path });
+        throw stepErr(Error("Path d.n.e. or requires force"), "fs.rm", { errMessage: e.message, rmPath: path });
       }
     }
   };
@@ -1751,19 +1748,17 @@ export class sh {
 
     /** Special handle the logging of the stdout/err */
     /** Track if out was logged bc we need to log it on error if !silent regardless  */
-    let outWasLoggedToConsole = false;
+    let outWasLoggedToConsole = true;
     let _logOut = _log4;
     if (rawOutput) {
       _logOut = l0;
-      outWasLoggedToConsole = true;
     } else if (silent) {
       _logOut = l9;
+      outWasLoggedToConsole = false;
     } else if (verbose) {
       _logOut = l2;
-      outWasLoggedToConsole = true;
     } else if (printOutput) {
       _logOut = l2;
-      outWasLoggedToConsole = true;
     } else {
       _logOut = l3;
       outWasLoggedToConsole = logDefault.logLevel >= 3;
@@ -1799,9 +1794,9 @@ export class sh {
     l9(`${prefix}:${id} cmdFull='${cmd}'`);
     _log4(`${prefix} cwd=${wd}`);
 
-    const cmdFinal = opts.wd ? `cd ${wd} && ${cmd} 2>&1` : cmd;
+    const cmdFinal = (opts.wd ? `cd ${wd} && ${cmd}` : cmd) + ` 2>&1`;
     const execP = P.wr<string>();
-    const cp = childProcessN.spawn(cmdFinal, { shell: true });
+    const cp = childProcessN.spawn(cmdFinal, { shell: true, stdio: "pipe" });
     cp.stdout.on("data", (data) => logOut(data.toString()));
     cp.stderr.on("data", (data) => logOut(data.toString()));
     cp.on("close", (code) => {
@@ -2174,46 +2169,40 @@ export class Yarn {
               inc: pkgName,
             });
           }
-          let tries = 0;
-          const ycc = () =>
-            sh.exec(`yarn cache clean ${pkgName}`, { prefix: "YARN", silent: true, wd: wsRoot }).catch(async (err) => {
-              // handle error: An unexpected error occurred: "There should only be one folder in a package cache (got
-              // in /Users/brian.dombrowski/Library/Caches/Yarn/v6/npm-@opendoor-eslint-plugin-0.0.0-local-482c49296f\
-              //3a7e192ee780c76cfe4edf5c4c1cfc-3bad1dcac8b4c893e5960f8a7bb52a2e67bf4d44-integrity/node_modules/@opendoor)".
-              // This doesn't seem to happen often and I'm not sure why it happens. But rm the dir seems to resolve.
-              const onlyOneFolderPath = err?.allout.match(
-                new RegExp(`There should only be one folder in a package cache \\(got  in (.*)/node_modules`),
-              );
 
-              // handle error: error An unexpected error occurred: \"ENOENT: no such file or directory, scandir \
-              // '/Users/brian.dombrowski/Library/Caches/Yarn/v6/npm-@opendoor-eslint-plugin-0.0.1-\
-              //  3140853c1c8e1a4a4d4e735dcca624fecf41024f/node_modules'\".
-              // This doesn't seem to happen often and I'm not sure why it happens. But rm the dir seems to resolve.
-              const nodeModulesMissingPath = err?.allout.match(
-                new RegExp(`ENOENT: no such file or directory, scandir '(.*)/node_modules`),
-              );
+          // Clear yarn caches for the package
 
-              const corruptFolderPath = onlyOneFolderPath?.[1] ?? nodeModulesMissingPath?.[1];
-
-              if (corruptFolderPath && tries < 3) {
-                tries++;
-                lwarn(
-                  `cleanYarnCache->detected and correcting yarn cache clean (${onlyOneFolderPath ? "oof" : "nmm"})`,
-                );
-                lwarn(`cleanYarnCache->corruptFolderPath: ${corruptFolderPath}`);
-                await fs.rm(corruptFolderPath, { force: true, recursive: true });
-                await ycc();
-              } else {
-                throw err;
-              }
-            });
-          await ycc();
+          // This "correct" way to clean the yarn cache is with `yarn cache clean ${pkgName}`, but
+          // it's slow and unreliable. So we go straight to the source.
 
           const cacheDir = `${fs.home}/Library/Caches/Yarn/v6`;
-          const pkgJsonsPaths = await fs.find(`${cacheDir}/.tmp`, { includes: ["package.json"], recursive: true });
-          const pkgFs = await P.all(pkgJsonsPaths.map(async (p) => fs.getPkgJsonFile(p).read()));
-          const pkgsToRm = pkgFs.filter((p) => p.json.name === pkgName);
-          await P.all(pkgsToRm.map((p) => p.del()));
+
+          const pkgCacheDirs = await fs.find(cacheDir, { includes: [strFileEscape(pkgName)] });
+          await P.all(pkgCacheDirs.map((p) => fs.rm(p)));
+
+          //
+          // Also clear .tmp dir of traces
+          //
+
+          // await sh.exec(
+          //   `find ${cacheDir}/.tmp -name ".yarn-metadata.json" -exec grep -sl ${this.json.name} {} \\; ` +
+          //     `| xargs dirname | xargs rm -rf`,
+          //   {
+          //     wd: this.pathAbs,
+          //   }
+          // );
+          const metaPaths = await fs.find(`${cacheDir}/.tmp`, {
+            includes: [".yarn-metadata.json"],
+            maxDepth: 2,
+            recursive: true,
+          });
+          const metaFiles = await P.all(
+            metaPaths.map(async (p) => fs.get<{ manifest: PkgJsonFields }, never>(p).read()),
+          );
+          const metasToRm = metaFiles.filter((p) => p.json.manifest.name === pkgName);
+          const pathsToRm = metasToRm.map((p) => fs.dirname(p.path));
+          await P.all(pathsToRm.map((p) => fs.rm(p)));
+          await P.all(metasToRm.map((p) => p.cacheClear()));
         }
       }
 
